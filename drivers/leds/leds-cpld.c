@@ -215,9 +215,7 @@ static void led_brightness_set(struct led_classdev *led_cdev,
 		reg_val &= ~(1 << (2 * idx));
 
 	writeb(reg_val, _g_cpld_led_addr);
-	reg_val = led->brightness / 2;
-	writeb(reg_val, _g_cpld_led_addr + 2 * (idx + 1));
-	printk(KERN_INFO "LED change: %s = %d \n", led_cdev->name, reg_val);
+	printk(KERN_INFO "LED change: %s = %d \n", led_cdev->name, led->brightness);
 	spin_unlock(&CPLD_LED->data_lock);
 }
 
@@ -279,9 +277,6 @@ static int CPLD_LED_probe(struct platform_device *pdev)
 
 	memset(CPLD_LED, 0, sizeof(struct CPLD_LED_data));
 	writeb(0x00, _g_cpld_led_addr);
-	writeb(0x00, _g_cpld_led_addr + 0x02);
-	writeb(0x00, _g_cpld_led_addr + 0x04);
-	writeb(0x00, _g_cpld_led_addr + 0x06);
 
 	CPLD_LED->leds[0].name = "red";
 	CPLD_LED->leds[0].brightness_set = led_brightness_set;
@@ -388,8 +383,6 @@ static struct platform_driver CPLD_LED_driver = {
 
 static int __init CPLD_LED_init(void)
 {
-	int rc = -1;
-
 	return platform_driver_register(&CPLD_LED_driver);
 }
 
