@@ -39,6 +39,7 @@ enum sapphire_panel_type {
 	NUM_OF_SAPPHIRE_PANELS,
 };
 static int g_panel_id = -1 ;
+static int g_panel_inited = 0 ;
 
 #define SAPPHIRE_DEFAULT_BACKLIGHT_BRIGHTNESS	132
 #define GOOGLE_DEFAULT_BACKLIGHT_BRIGHTNESS 	102
@@ -380,7 +381,8 @@ static struct mddi_table mddi_tpo_deinit_table[] = {
 
 static void sapphire_process_mddi_table(
 				     struct msm_mddi_client_data *client_data,
-				     struct mddi_table *table, size_t count)
+				     const struct mddi_table *table,
+				     size_t count)
 {
 	int i;
 	for (i = 0; i < count; i++) {
@@ -422,8 +424,6 @@ static void sapphire_mddi_power_client(struct msm_mddi_client_data *client_data,
 		msm_proc_comm(PCOM_VREG_PULLDOWN, &on_off, &id);
 		vreg_enable(vreg_lcm_2v85);
 		msleep(3);
-		gpio_set_value(MDDI_RST_N, 1);
-		msleep(10);
 	} else {
 		gpio_set_value(SAPPHIRE_GPIO_MDDI_32K_EN, 0);
 		gpio_set_value(MDDI_RST_N, 0);
@@ -450,6 +450,12 @@ static int sapphire_mddi_toshiba_client_init(
 			struct msm_mddi_client_data *client_data)
 {
 	int panel_id;
+
+	/* Set the MDDI_RST_N accroding to MDDI client repectively(
+	 * been set in sapphire_mddi_power_client() originally)
+	 */
+	gpio_set_value(MDDI_RST_N, 1);
+	msleep(10);
 
 	client_data->auto_hibernate(client_data, 0);
 	sapphire_process_mddi_table(client_data, mddi_toshiba_init_table,
@@ -549,6 +555,345 @@ static int sapphire_mddi_panel_blank(
 	return ret;
 }
 
+/* Initial sequence of TPO panel with Novatek NT35399 MDDI client */
+
+#undef TPO2_ONE_GAMMA
+
+static const struct mddi_table tpo2_init_table[] = {
+	/* Panel interface control */
+	{ 0xB30, 0x44 },
+	{ 0xB40, 0x00 },
+	{ 0xB41, 0x87 },
+	{ 0xB50, 0x06 },
+	{ 0xB51, 0x7B },
+	{ 0xB60, 0x0E },
+	{ 0xB70, 0x10 },
+	{ 0xB80, 0x03 },
+	{ 0xB90, 0x00 },
+	{ 0x350, 0x0a },	/* FTE is at 10st line */
+
+	/* Entry Mode */
+	{ 0x360, 0x30 },
+	{ 0x361, 0xC0 },
+	{ 0x362, 0x04 },
+
+/* 0x2 for gray scale gamma correction, 0x12 for RGB gamma correction  */
+#ifdef TPO2_ONE_GAMMA
+	{ 0xB00, 0x02 },
+#else
+	{ 0xB00, 0x12 },
+#endif
+	/* Driver output control */
+	{ 0x371, 0xEF },
+	{ 0x372, 0x03 },
+
+	/* DCDC on glass control */
+	{ 0xC31, 0x10 },
+	{ 0xBA0, 0x00 },
+	{ 0xBA1, 0x86 },
+
+	/* VCOMH voltage control */
+	{ 0xC50, 0x27 },
+
+	/* VCOMDC voltage control */
+	{ 0xC52, 0x3C },
+
+	/* Special function control */
+	{ 0xC10, 0x82 },
+
+	/* Power control */
+	{ 0xC40, 0x44 },
+	{ 0xC41, 0x02 },
+
+	/* Source output control */
+	{ 0xBE0, 0x01 },
+	{ 0xBE1, 0x00 },
+
+	/* Windows address setting */
+	{ 0x2A0, 0x00 },
+	{ 0x2A1, 0x00 },
+	{ 0x2A2, 0x3F },
+	{ 0x2A3, 0x01 },
+	{ 0x2B0, 0x00 },
+	{ 0x2B1, 0x00 },
+	{ 0x2B2, 0xDF },
+	{ 0x2B3, 0x01 },
+
+	/* RAM address setting */
+	{ 0x2D0, 0x00 },
+	{ 0x2D1, 0x00 },
+	{ 0x2D2, 0x00 },
+	{ 0x2D3, 0x00 },
+
+	{ 0xF20, 0x55 },
+	{ 0xF21, 0xAA },
+	{ 0xF22, 0x66 },
+	{ 0xF57, 0x45 },
+
+/*
+ * The NT35399 provides gray or RGB gamma correction table,
+ * which determinated by register-0xb00, and following table
+ */
+#ifdef TPO2_ONE_GAMMA
+	/* Positive Gamma setting */
+	{ 0xE00, 0x04 },
+	{ 0xE01, 0x12 },
+	{ 0xE02, 0x18 },
+	{ 0xE03, 0x10 },
+	{ 0xE04, 0x29 },
+	{ 0xE05, 0x26 },
+	{ 0xE06, 0x1f },
+	{ 0xE07, 0x11 },
+	{ 0xE08, 0x0c },
+	{ 0xE09, 0x3a },
+	{ 0xE0A, 0x0d },
+	{ 0xE0B, 0x28 },
+	{ 0xE0C, 0x40 },
+	{ 0xE0D, 0x4e },
+	{ 0xE0E, 0x6f },
+	{ 0xE0F, 0x5E },
+
+	/* Negative Gamma setting */
+	{ 0xE10, 0x0B },
+	{ 0xE11, 0x00 },
+	{ 0xE12, 0x00 },
+	{ 0xE13, 0x1F },
+	{ 0xE14, 0x4b },
+	{ 0xE15, 0x33 },
+	{ 0xE16, 0x13 },
+	{ 0xE17, 0x12 },
+	{ 0xE18, 0x0d },
+	{ 0xE19, 0x2f },
+	{ 0xE1A, 0x16 },
+	{ 0xE1B, 0x2e },
+	{ 0xE1C, 0x49 },
+	{ 0xE1D, 0x41 },
+	{ 0xE1E, 0x46 },
+	{ 0xE1F, 0x55 },
+#else
+	/* Red Positive Gamma  */
+	{ 0xE00, 0x21 },
+	{ 0xE01, 0x25 },
+	{ 0xE02, 0x2c },
+	{ 0xE03, 0x08 },
+	{ 0xE04, 0x24 },
+	{ 0xE05, 0x24 },
+	{ 0xE06, 0x23 },
+	{ 0xE07, 0x10 },
+	{ 0xE08, 0x0a },
+	{ 0xE09, 0x3f },
+	{ 0xE0A, 0x0d },
+	{ 0xE0B, 0x28 },
+	{ 0xE0C, 0x40 },
+	{ 0xE0D, 0x4e },
+	{ 0xE0E, 0x6f },
+	{ 0xE0F, 0x5e },
+
+	/* Red Negative Gamma 	*/
+	{ 0xE10, 0x0b },
+	{ 0xE11, 0x00 },
+	{ 0xE12, 0x00 },
+	{ 0xE13, 0x1f },
+	{ 0xE14, 0x4b },
+	{ 0xE15, 0x33 },
+	{ 0xE16, 0x0e },
+	{ 0xE17, 0x14 },
+	{ 0xE18, 0x0e },
+	{ 0xE19, 0x2a },
+	{ 0xE1A, 0x18 },
+	{ 0xE1B, 0x33 },
+	{ 0xE1C, 0x51 },
+	{ 0xE1D, 0x2d },
+	{ 0xE1E, 0x33 },
+	{ 0xE1F, 0x38 },
+
+	/* Green Positive Gamma	*/
+	{ 0xE20, 0x13 },
+	{ 0xE21, 0x18 },
+	{ 0xE22, 0x1e },
+	{ 0xE23, 0x08 },
+	{ 0xE24, 0x22 },
+	{ 0xE25, 0x22 },
+	{ 0xE26, 0x1b },
+	{ 0xE27, 0x11 },
+	{ 0xE28, 0x0e },
+	{ 0xE29, 0x37 },
+	{ 0xE2A, 0x0d },
+	{ 0xE2B, 0x28 },
+	{ 0xE2C, 0x40 },
+	{ 0xE2D, 0x4e },
+	{ 0xE2E, 0x6f },
+	{ 0xE2F, 0x5e },
+
+	/* Green Negative Gamma */
+	{ 0xE30, 0x0B },
+	{ 0xE31, 0x00 },
+	{ 0xE32, 0x00 },
+	{ 0xE33, 0x1F },
+	{ 0xE34, 0x4b },
+	{ 0xE35, 0x33 },
+	{ 0xE36, 0x16 },
+	{ 0xE37, 0x10 },
+	{ 0xE38, 0x0d },
+	{ 0xE39, 0x32 },
+	{ 0xE3A, 0x1a },
+	{ 0xE3B, 0x35 },
+	{ 0xE3C, 0x51 },
+	{ 0xE3D, 0x3b },
+	{ 0xE3E, 0x40 },
+	{ 0xE3F, 0x46 },
+
+	/* Blue Positive Gamma */
+	{ 0xE40, 0x47 },
+	{ 0xE41, 0x46 },
+	{ 0xE42, 0x47 },
+	{ 0xE43, 0x00 },
+	{ 0xE44, 0x08 },
+	{ 0xE45, 0x0b },
+	{ 0xE46, 0x19 },
+	{ 0xE47, 0x10 },
+	{ 0xE48, 0x0e },
+	{ 0xE49, 0x32 },
+	{ 0xE4A, 0x0d },
+	{ 0xE4B, 0x28 },
+	{ 0xE4C, 0x40 },
+	{ 0xE4D, 0x4e },
+	{ 0xE4E, 0x6f },
+	{ 0xE4F, 0x5E },
+
+	/* Blue Negative Gamma */
+	{ 0xE50, 0x0B },
+	{ 0xE51, 0x00 },
+	{ 0xE52, 0x00 },
+	{ 0xE53, 0x1F },
+	{ 0xE54, 0x4b },
+	{ 0xE55, 0x33 },
+	{ 0xE56, 0x1b },
+	{ 0xE57, 0x10 },
+	{ 0xE58, 0x0e },
+	{ 0xE59, 0x34 },
+	{ 0xE5A, 0x31 },
+	{ 0xE5B, 0x4f },
+	{ 0xE5C, 0x59 },
+	{ 0xE5D, 0x12 },
+	{ 0xE5E, 0x12 },
+	{ 0xE5F, 0x12 },
+#endif
+	/* Sleep in mode 		*/
+	{ 0x110, 0x00 },
+	{ 0x1,   0x23 },
+	/* Display on mode 		*/
+	{ 0x290, 0x00 },
+	{ 0x1,   0x27 },
+	/* Driver output control	*/
+	{ 0x372, 0x01 },
+	{ 0x1,   0x40 },
+	/* Display on mode		*/
+	{ 0x290, 0x01 },
+};
+
+static const struct mddi_table tpo2_display_on[] = {
+	{ 0x290, 0x01 },
+};
+
+static const struct mddi_table tpo2_display_off[] = {
+	{ 0x110, 0x01 },
+	{ 0x290, 0x00 },
+	{ 0x1,   100 },
+};
+
+static const struct mddi_table tpo2_power_off[] = {
+	{ 0x0110, 0x01 },
+};
+
+static int nt35399_detect_panel(struct msm_mddi_client_data *client_data)
+{
+	/* Sharp panel is not available now, return TPO only. */
+	return SAPPHIRE_PANEL_TOPPOLY ;
+}
+
+static int nt35399_client_init(
+		struct msm_mddi_bridge_platform_data *bridge_data,
+		struct msm_mddi_client_data *client_data)
+{
+	int panel_id;
+
+	/* The NT35399 requires following delay seqence for
+	 * debouncing detection
+	 */
+	gpio_set_value(MDDI_RST_N, 1);
+	msleep(10);
+	gpio_set_value(MDDI_RST_N, 0);
+	udelay(100);
+	gpio_set_value(MDDI_RST_N, 1);
+	mdelay(10);
+
+	if (g_panel_inited == 0) {
+		/* Skip initialization at booting, to avoid
+		 * blink problem due to consecutive initialization.
+		 */
+		g_panel_inited = 1 ;
+		g_panel_id = panel_id = nt35399_detect_panel(client_data);
+	} else {
+		client_data->auto_hibernate(client_data, 0);
+		sapphire_process_mddi_table(client_data, tpo2_init_table,
+				ARRAY_SIZE(tpo2_init_table));
+		client_data->auto_hibernate(client_data, 1);
+	}
+
+	if (panel_id == -1) {
+		printk(KERN_ERR "Invalid panel id\n");
+		return -1;
+	}
+
+	return 0;
+}
+
+static int nt35399_client_uninit(
+		struct msm_mddi_bridge_platform_data *bridge_data,
+		struct msm_mddi_client_data *cdata)
+{
+	return 0;
+}
+
+static int nt35399_panel_unblank(
+		struct msm_mddi_bridge_platform_data *bridge_data,
+		struct msm_mddi_client_data *client_data)
+{
+	int ret = 0;
+
+	sapphire_set_backlight_level(0);
+	client_data->auto_hibernate(client_data, 0);
+
+	mutex_lock(&sapphire_backlight_lock);
+	sapphire_set_backlight_level(sapphire_backlight_brightness);
+	sapphire_backlight_off = 0;
+	mutex_unlock(&sapphire_backlight_lock);
+
+	client_data->auto_hibernate(client_data, 1);
+
+	return ret;
+}
+
+static int nt35399_panel_blank(
+		struct msm_mddi_bridge_platform_data *bridge_data,
+		struct msm_mddi_client_data *client_data)
+{
+	int ret = 0;
+
+	client_data->auto_hibernate(client_data, 0);
+	sapphire_process_mddi_table(client_data, tpo2_display_off,
+			ARRAY_SIZE(tpo2_display_off));
+	client_data->auto_hibernate(client_data, 1);
+
+	mutex_lock(&sapphire_backlight_lock);
+	sapphire_set_backlight_level(0);
+	sapphire_backlight_off = 1;
+	mutex_unlock(&sapphire_backlight_lock);
+
+	return ret;
+}
+
 static void sapphire_brightness_set(struct led_classdev *led_cdev, enum led_brightness value)
 {
 	mutex_lock(&sapphire_backlight_lock);
@@ -607,17 +952,49 @@ static struct msm_mddi_bridge_platform_data toshiba_client_data = {
 	},
 };
 
+#define NT35399_MFR_NAME	0x0bda
+#define NT35399_PRODUCT_CODE 	0x8a47
+
+static void nt35399_fixup(uint16_t * mfr_name, uint16_t * product_code)
+{
+	printk(KERN_DEBUG "%s: enter.\n", __func__);
+	*mfr_name = NT35399_MFR_NAME ;
+	*product_code= NT35399_PRODUCT_CODE ;
+}
+
+static struct msm_mddi_bridge_platform_data nt35399_client_data = {
+
+	.init = nt35399_client_init,
+	.uninit = nt35399_client_uninit,
+	.blank = nt35399_panel_blank,
+	.unblank = nt35399_panel_unblank,
+	.fb_data = {
+		.xres = 320,
+		.yres = 480,
+		.output_format = 0,
+	},
+};
+
 static struct msm_mddi_platform_data mddi_pdata = {
 	.clk_rate = 122880000,
 	.power_client = sapphire_mddi_power_client,
+	.fixup = nt35399_fixup,
 	.fb_resource = resources_msm_fb,
-	.num_clients = 1,
+	.num_clients = 2,
 	.client_platform_data = {
 		{
 			.product_id = (0xd263 << 16 | 0),
 			.name = "mddi_c_d263_0000",
 			.id = 0,
 			.client_data = &toshiba_client_data,
+			.clk_rate = 0,
+		},
+		{
+			.product_id =
+				(NT35399_MFR_NAME << 16 | NT35399_PRODUCT_CODE),
+			.name = "mddi_c_0bda_8a47" ,
+			.id = 0,
+			.client_data = &nt35399_client_data,
 			.clk_rate = 0,
 		},
 	},
