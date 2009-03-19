@@ -840,7 +840,10 @@ msmsdcc_check_status(unsigned long data)
 		printk(KERN_INFO
 		       "%s: Slot status change detected (%d -> %d)\n",
 		       mmc_hostname(host->mmc), host->oldstat, status);
-		mmc_detect_change(host->mmc, 0);
+		if (status)
+			mmc_detect_change(host->mmc, (5 * HZ) / 2);
+		else
+			mmc_detect_change(host->mmc, 0);
 	}
 
 	host->oldstat = status;
