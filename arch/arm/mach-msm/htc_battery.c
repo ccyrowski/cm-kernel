@@ -30,7 +30,7 @@
 
 static struct wake_lock vbus_wake_lock;
 
-#define TRACE_BATT 1
+#define TRACE_BATT 0
 
 #if TRACE_BATT
 #include <linux/rtc.h>
