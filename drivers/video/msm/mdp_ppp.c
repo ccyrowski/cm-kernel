@@ -32,6 +32,7 @@
 #define DLOG(x...) do {} while (0)
 #endif
 
+#define MDP_DOWNSCALE_BLUR (MDP_DOWNSCALE_MAX + 1)
 static int downscale_y_table = MDP_DOWNSCALE_MAX;
 static int downscale_x_table = MDP_DOWNSCALE_MAX;
 
@@ -299,10 +300,10 @@ static int scale_params(uint32_t dim_in, uint32_t dim_out, uint32_t origin,
 }
 
 static void load_scale_table(const struct mdp_info *mdp,
-			     struct mdp_table_entry *table)
+			     struct mdp_table_entry *table, int len)
 {
 	int i;
-	for (i = 0; i < 64; i++)
+	for (i = 0; i < len; i++)
 		mdp_writel(mdp, table[i].val, table[i].reg);
 }
 
@@ -460,7 +461,8 @@ static int blit_scale(const struct mdp_info *mdp, struct mdp_blit_req *req,
 		dst_w = req->dst_rect.w;
 		dst_h = req->dst_rect.h;
 	}
-	if ((req->src_rect.w == dst_w)  && (req->src_rect.h == dst_h)) {
+	if ((req->src_rect.w == dst_w)  && (req->src_rect.h == dst_h) &&
+	    !(req->flags & MDP_BLUR)) {
 		regs->phasex_init = 0;
 		regs->phasey_init = 0;
 		regs->phasex_step = 0;
@@ -486,7 +488,7 @@ static int blit_scale(const struct mdp_info *mdp, struct mdp_blit_req *req,
 	else
 		downscale = MDP_DOWNSCALE_PT2TOPT4;
 	if (downscale != downscale_x_table) {
-		load_scale_table(mdp, mdp_downscale_x_table[downscale]);
+		load_scale_table(mdp, mdp_downscale_x_table[downscale], 64);
 		downscale_x_table = downscale;
 	}
 
@@ -499,7 +501,7 @@ static int blit_scale(const struct mdp_info *mdp, struct mdp_blit_req *req,
 	else
 		downscale = MDP_DOWNSCALE_PT2TOPT4;
 	if (downscale != downscale_y_table) {
-		load_scale_table(mdp, mdp_downscale_y_table[downscale]);
+		load_scale_table(mdp, mdp_downscale_y_table[downscale], 64);
 		downscale_y_table = downscale;
 	}
 
@@ -511,6 +513,23 @@ static int blit_scale(const struct mdp_info *mdp, struct mdp_blit_req *req,
 	return 0;
 
 }
+
+static void blit_blur(const struct mdp_info *mdp, struct mdp_blit_req *req,
+		      struct mdp_regs *regs)
+{
+	if (!(req->flags & MDP_BLUR))
+		return;
+
+	if (!(downscale_x_table == MDP_DOWNSCALE_BLUR &&
+              downscale_y_table == MDP_DOWNSCALE_BLUR)) {
+		load_scale_table(mdp, mdp_gaussian_blur_table, 128);
+		downscale_x_table = MDP_DOWNSCALE_BLUR;
+		downscale_y_table = MDP_DOWNSCALE_BLUR;
+	}
+
+	regs->op |= (PPP_OP_SCALE_Y_ON | PPP_OP_SCALE_X_ON);
+}
+
 
 #define IMG_LEN(rect_h, w, rect_w, bpp) (((rect_h) * w) * bpp)
 
@@ -760,6 +779,7 @@ int mdp_ppp_blit(const struct mdp_info *mdp, struct mdp_blit_req *req,
 		printk(KERN_ERR "mpd_ppp: error computing scale for img.\n");
 		return -EINVAL;
 	}
+	blit_blur(mdp, req, &regs);
 	regs.op |= dst_op_chroma[req->dst.format] |
 		   src_op_chroma[req->src.format];
 

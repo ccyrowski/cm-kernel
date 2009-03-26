@@ -33,5 +33,6 @@ enum {
 
 extern struct mdp_table_entry* mdp_downscale_x_table[MDP_DOWNSCALE_MAX];
 extern struct mdp_table_entry* mdp_downscale_y_table[MDP_DOWNSCALE_MAX];
+extern struct mdp_table_entry mdp_gaussian_blur_table[];
 
 #endif  //_MDP_SCALE_TABLES_H_
