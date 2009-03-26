@@ -26,6 +26,8 @@
 #include <linux/io.h>
 #include <asm/mach-types.h>
 
+#define DEBUG_LED_CHANGE 0
+
 static int _g_cpld_led_addr;
 
 struct CPLD_LED_data {
@@ -193,8 +195,10 @@ static void led_brightness_set(struct led_classdev *led_cdev,
 			reg_val = brightness;
 		writeb(0, _g_cpld_led_addr + 0x8);
 		writeb(reg_val, _g_cpld_led_addr + 0x8);
+#if DEBUG_LED_CHANGE
 		printk(KERN_INFO "LED change: jogball backlight = %d \n",
 		       reg_val);
+#endif
 		return;
 	} else if (!strcmp(led_cdev->name, "red")) {
 		idx = 0;
@@ -215,7 +219,9 @@ static void led_brightness_set(struct led_classdev *led_cdev,
 		reg_val &= ~(1 << (2 * idx));
 
 	writeb(reg_val, _g_cpld_led_addr);
+#if DEBUG_LED_CHANGE
 	printk(KERN_INFO "LED change: %s = %d \n", led_cdev->name, led->brightness);
+#endif
 	spin_unlock(&CPLD_LED->data_lock);
 }
 
