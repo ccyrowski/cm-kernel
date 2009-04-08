@@ -6,8 +6,6 @@
 #include <mach/irqs.h>
 #include "msm_vfe8x_proc.h"
 
-#define CDBG(fmt, args...) printk(KERN_INFO "msm_camera vfe8x: " fmt, ##args)
-
 #define ON  1
 #define OFF 0
 

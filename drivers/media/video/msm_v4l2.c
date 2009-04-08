@@ -18,8 +18,6 @@
 #include <media/v4l2-ioctl.h>
 /*#include <linux/platform_device.h>*/
 
-#define CDBG(fmt, args...) printk(KERN_INFO "msm_camera v4l2: " fmt, ##args)
-
 #define MSM_V4L2_START_SNAPSHOT _IOWR('V', BASE_VIDIOC_PRIVATE+1, \
       struct v4l2_buffer)
 

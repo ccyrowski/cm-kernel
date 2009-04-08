@@ -12,8 +12,6 @@
 #include <mach/camera.h>
 #include "s5k3e2fx.h"
 
-#define CDBG(fmt, args...) printk(KERN_INFO "msm_camera s5k3e2fx: " fmt, ##args)
-
 #define S5K3E2FX_REG_MODEL_ID   0x0000
 #define S5K3E2FX_MODEL_ID   		0x3E2F
 

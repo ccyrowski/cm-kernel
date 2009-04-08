@@ -15,6 +15,12 @@
 #include <mach/board.h>
 #include <media/msm_camera.h>
 
+#ifdef CONFIG_MSM_CAMERA_DEBUG
+#define CDBG(fmt, args...) printk(KERN_INFO "msm_camera: " fmt, ##args)
+#else
+#define CDBG(fmt, args...) do { } while (0)
+#endif
+
 #define MSM_CAMERA_MSG 0
 #define MSM_CAMERA_EVT 1
 #define NUM_WB_EXP_NEUTRAL_REGION_LINES 4

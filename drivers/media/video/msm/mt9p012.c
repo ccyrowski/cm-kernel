@@ -13,8 +13,6 @@
 #include <mach/camera.h>
 #include "mt9p012.h"
 
-#define CDBG(fmt, args...) printk(KERN_INFO "msm_camera mt9p012: " fmt, ##args)
-
 /*=============================================================
     SENSOR REGISTER DEFINES
 ==============================================================*/

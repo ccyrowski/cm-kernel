@@ -11,8 +11,6 @@
 #include "msm_vfe8x_proc.h"
 #include <media/msm_camera.h>
 
-#define CDBG(fmt, args...) printk(KERN_INFO "msm_camera vfe8x: " fmt, ##args)
-
 struct msm_vfe8x_ctrl_t {
 	/* bit 1:0 ENC_IRQ_MASK = 0x11:
 	 * generate IRQ when both y and cbcr frame is ready. */

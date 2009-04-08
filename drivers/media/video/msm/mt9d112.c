@@ -11,8 +11,6 @@
 #include <mach/gpio.h>
 #include "mt9d112.h"
 
-#define CDBG(fmt, args...) printk(KERN_INFO "msm_camera mt9d112: " fmt, ##args)
-
 /* Micron MT9D112 Registers and their values */
 /* Sensor Core Registers */
 #define  REG_MT9D112_MODEL_ID 0x3000
