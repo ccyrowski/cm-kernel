@@ -660,13 +660,9 @@ static int msm_get_stats(void __user *arg,
 				rc = -EFAULT;
 		} else if (data->type == VFE_MSG_SNAPSHOT) {
 
-			unsigned pp_en;
+			unsigned pp_en = msm->pict_pp;
 			struct msm_postproc_t buf;
 			struct msm_pmem_region region;
-
-			mutex_lock(&msm->pict_pp_lock);
-			pp_en = msm->pict_pp;
-			mutex_unlock(&msm->pict_pp_lock);
 
 			if (pp_en) {
 				buf.fmnum =
@@ -1315,11 +1311,7 @@ static int msm_pict_pp_done(void __user *arg,
 	unsigned long flags;
 	int rc = 0;
 
-	unsigned pp_en;
-
-	mutex_lock(&msm->pict_pp_lock);
-	pp_en = msm->pict_pp;
-	mutex_unlock(&msm->pict_pp_lock);
+	unsigned pp_en = msm->pict_pp;
 
 	if (!pp_en)
 		return -EINVAL;
@@ -1431,9 +1423,7 @@ static long msm_ioctl(struct file *filep, unsigned int cmd,
 		if (copy_from_user(&enable, argp, sizeof(enable)))
 			return -EFAULT;
 
-		mutex_lock(&pmsm->pict_pp_lock);
 		pmsm->pict_pp = enable;
-		mutex_unlock(&pmsm->pict_pp_lock);
 		return 0;
 	}
 
@@ -1680,10 +1670,7 @@ static void msm_vfe_sync(struct msm_vfe_resp_t *vdata,
 			CDBG("waked up frame thread\n");
 
 		} else if (vdata->type == VFE_MSG_SNAPSHOT) {
-			unsigned pp;
-			mutex_lock(&msm->pict_pp_lock);
-			pp = msm->pict_pp;
-			mutex_unlock(&msm->pict_pp_lock);
+			unsigned pp = msm->pict_pp;
 
 			CDBG("SNAPSHOT pp = %d\n", pp);
 			if (!pp) {
@@ -2057,7 +2044,6 @@ int msm_camera_drv_start(struct platform_device *dev,
 	wake_lock_init(&pmsm->wake_lock, WAKE_LOCK_IDLE, "msm_camera");
 
 	mutex_init(&pmsm->msm_lock);
-	mutex_init(&pmsm->pict_pp_lock);
 	mutex_init(&pmsm->msm_sem);
 
 	if (dev_num < MSM_MAX_CAMERA_NODES) {

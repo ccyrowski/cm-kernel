@@ -114,7 +114,6 @@ struct msm_device_t {
 	void *cropinfo;
 	int  croplen;
 
-	struct mutex pict_pp_lock;
 	unsigned pict_pp;
 
 	struct msm_sensor_ctrl_t sctrl;
