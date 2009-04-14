@@ -1234,7 +1234,7 @@ static int msm_camera_pict_pending(struct msm_device_t *msm)
 	return yes;
 }
 
-static int __msm_get_pict(struct msm_ctrl_cmd_t *ctrl,
+static int __msm_get_pic(struct msm_ctrl_cmd_t *ctrl,
 	struct msm_device_t *msm)
 {
 	unsigned long flags;
@@ -1296,6 +1296,7 @@ static int msm_get_pic(void __user *arg,
 	struct msm_device_t *msm)
 {
 	struct msm_ctrl_cmd_t ctrlcmd_t;
+	int rc;
 
 	if (copy_from_user(&ctrlcmd_t,
 				arg,
@@ -1318,8 +1319,9 @@ static int msm_get_pic(void __user *arg,
 		}
 	}
 
-	if (__msm_get_pict(&ctrlcmd_t, msm) < 0)
-		return -EFAULT;
+	rc = __msm_get_pic(&ctrlcmd_t, msm);
+	if (rc < 0)
+		return rc;
 
 	if (copy_to_user((void *)arg,
 		&ctrlcmd_t,
@@ -2035,7 +2037,7 @@ int msm_register(struct msm_driver *drv, const char *id)
 		drv->reg_pmem  = __msm_register_pmem;
 		drv->get_frame = __msm_get_frame;
 		drv->put_frame = __msm_put_frame_buf;
-		drv->get_pict  = __msm_get_pict;
+		drv->get_pict  = __msm_get_pic;
 		drv->drv_poll  = __msm_apps_poll;
 		rc = 0;
 	}
