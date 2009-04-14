@@ -86,7 +86,7 @@
 #define MCI_SDIOINTR		(1 << 22)
 #define MCI_PROGDONE		(1 << 23)
 #define MCI_ATACMDCOMPL		(1 << 24)
-#define MCI_SDIOINTROPE		(1 << 25)
+#define MCI_SDIOINTOPER		(1 << 25)
 #define MCI_CCSTIMEOUT		(1 << 26)
 
 #define MMCICLEAR		0x038

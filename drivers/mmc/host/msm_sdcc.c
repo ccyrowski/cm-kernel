@@ -62,6 +62,7 @@ static unsigned int msmsdcc_fmin = 144000;
 static unsigned int msmsdcc_fmax = 50000000;
 static unsigned int msmsdcc_4bit = 1;
 static unsigned int msmsdcc_pwrsave = 1;
+static unsigned int msmsdcc_sdioirq = 0;
 
 #define VERBOSE_COMMAND_TIMEOUTS	1
 
@@ -582,6 +583,7 @@ msmsdcc_irq(int irq, void *dev_id)
 	void __iomem		*base = host->base;
 	u32			status;
 	int			ret = 0;
+	int			cardint = 0;
 
 	spin_lock(&host->lock);
 
@@ -707,11 +709,22 @@ msmsdcc_irq(int irq, void *dev_id)
 			} else if (!(cmd->data->flags & MMC_DATA_READ))
 				msmsdcc_start_data(host, cmd->data);
 		}
-
+		if (status & MCI_SDIOINTOPER) {
+			cardint = 1;
+			status &= ~MCI_SDIOINTOPER;
+		}
 		ret = 1;
 	} while (status);
 
 	spin_unlock(&host->lock);
+
+	/*
+	 * We have to delay handling the card interrupt as it calls
+	 * back into the driver.
+	 */
+	if (cardint) {
+		mmc_signal_sdio_irq(host->mmc);
+	}
 
 	return IRQ_RETVAL(ret);
 }
@@ -818,9 +831,29 @@ msmsdcc_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 	}
 }
 
+static void msmsdcc_enable_sdio_irq(struct mmc_host *mmc, int enable)
+{
+	struct msmsdcc_host *host = mmc_priv(mmc);
+	unsigned long flags;
+	u32 status;
+
+	/* printk("%s: %d\n", __FUNCTION__, enable); */
+	spin_lock_irqsave(&host->lock, flags);
+	if (msmsdcc_sdioirq == 1) {
+		status = readl(host->base + MMCIMASK0);
+		if (enable)
+			status |= MCI_SDIOINTOPERMASK;
+		else
+			status &= ~MCI_SDIOINTOPERMASK;
+		writel(status, host->base + MMCIMASK0);
+	}
+	spin_unlock_irqrestore(&host->lock, flags);
+}
+
 static const struct mmc_host_ops msmsdcc_ops = {
 	.request	= msmsdcc_request,
 	.set_ios	= msmsdcc_set_ios,
+	.enable_sdio_irq = msmsdcc_enable_sdio_irq,
 };
 
 static void
@@ -1087,7 +1120,8 @@ msmsdcc_probe(struct platform_device *pdev)
 
 	if (msmsdcc_4bit)
 		mmc->caps |= MMC_CAP_4_BIT_DATA;
-
+	if (msmsdcc_sdioirq)
+		mmc->caps |= MMC_CAP_SDIO_IRQ;
 	mmc->caps |= MMC_CAP_MMC_HIGHSPEED | MMC_CAP_SD_HIGHSPEED;
 
 	mmc->max_phys_segs = NR_SG;
@@ -1099,7 +1133,7 @@ msmsdcc_probe(struct platform_device *pdev)
 	mmc->max_seg_size = mmc->max_req_size;
 
 	writel(0, host->base + MMCIMASK0);
-	writel(0x5c007ff, host->base + MMCICLEAR);
+	writel(0x5e007ff, host->base + MMCICLEAR); /* Add: 1 << 25 */
 
 	writel(MCI_IRQENABLE, host->base + MMCIMASK0);
 
@@ -1303,6 +1337,18 @@ static int __init msmsdcc_nopwrsave_setup(char *__unused)
 	return 1;
 }
 
+static int __init msmsdcc_sdioirq_setup(char *__unused)
+{
+	msmsdcc_sdioirq = 1;
+	return 1;
+}
+
+static int __init msmsdcc_nosdioirq_setup(char *__unused)
+{
+	msmsdcc_sdioirq = 0;
+	return 1;
+}
+
 static int __init msmsdcc_4bit_setup(char *__unused)
 {
 	msmsdcc_4bit = 1;
@@ -1339,6 +1385,8 @@ __setup("msmsdcc_4bit", msmsdcc_4bit_setup);
 __setup("msmsdcc_1bit", msmsdcc_1bit_setup);
 __setup("msmsdcc_pwrsave", msmsdcc_pwrsave_setup);
 __setup("msmsdcc_nopwrsave", msmsdcc_nopwrsave_setup);
+__setup("msmsdcc_sdioirq", msmsdcc_sdioirq_setup);
+__setup("msmsdcc_nosdioirq", msmsdcc_nosdioirq_setup);
 __setup("msmsdcc_fmin=", msmsdcc_fmin_setup);
 __setup("msmsdcc_fmax=", msmsdcc_fmax_setup);
 
