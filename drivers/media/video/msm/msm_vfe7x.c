@@ -7,6 +7,8 @@
 #include <linux/fs.h>
 #include <linux/android_pmem.h>
 #include <mach/msm_adsp.h>
+#include <linux/delay.h>
+#include <linux/wait.h>
 #include "msm_vfe7x.h"
 
 #define QDSP_CMDQUEUE QDSP_vfeCommandQueue
@@ -18,6 +20,7 @@
 #define STATS_AF_ACK  21
 #define STATS_WE_ACK  22
 
+#define MSG_STOP_ACK  1
 #define MSG_SNAPSHOT  2
 #define MSG_OUTPUT1   6
 #define MSG_OUTPUT2   7
@@ -33,6 +36,9 @@ static uint32_t extlen;
 struct mutex vfe_lock;
 static uint32_t vfe_inuse;
 static void     *vfe_syncdata;
+static uint8_t vfestopped;
+
+static struct stop_event stopevent;
 
 static void vfe_7x_convert(struct msm_vfe_phy_info *pinfo,
 	enum vfe_resp_msg_t	type, void *data, void **ext, int32_t *elen)
@@ -145,6 +151,13 @@ static void vfe_7x_ops(void *driver_data, unsigned id, size_t len,
 			CDBG("MSG_STATS_WE: phy = 0x%x\n", rp->phy.sbuf_phy);
 			break;
 
+		case MSG_STOP_ACK:
+			rp->type = VFE_MSG_GENERAL;
+			stopevent.state = 1;
+			wake_up(&stopevent.wait);
+			break;
+
+
 		default:
 			rp->type = VFE_MSG_GENERAL;
 			break;
@@ -183,12 +196,37 @@ static int vfe_7x_disable(struct camera_enable_cmd_t *enable,
 	return rc;
 }
 
+static int vfe_7x_stop(void)
+{
+	int rc = 0;
+	uint32_t stopcmd = VFE_STOP_CMD;
+	rc = msm_adsp_write(vfe_mod, QDSP_CMDQUEUE,
+				&stopcmd, sizeof(uint32_t));
+	if (rc < 0) {
+		CDBG("%s:%d: failed rc = %d \n", __func__, __LINE__, rc);
+		return rc;
+	}
+
+	stopevent.state = 0;
+	rc = wait_event_timeout(stopevent.wait,
+		stopevent.state != 0,
+		msecs_to_jiffies(stopevent.timeout));
+
+	return rc;
+}
+
 static void vfe_7x_release(struct platform_device *dev)
 {
 	mutex_lock(&vfe_lock);
 	vfe_inuse = 0;
 	vfe_syncdata = NULL;
 	mutex_unlock(&vfe_lock);
+
+	if (!vfestopped) {
+		CDBG("%s:%d:Calling vfe_7x_stop()\n", __func__, __LINE__);
+		vfe_7x_stop();
+	} else
+		vfestopped = 0;
 
 	msm_adsp_disable(qcam_mod);
 	msm_adsp_disable(vfe_mod);
@@ -206,6 +244,10 @@ static int vfe_7x_init(struct msm_vfe_resp *presp,
 	struct platform_device *dev)
 {
 	int rc = 0;
+
+	init_waitqueue_head(&stopevent.wait);
+	stopevent.timeout = 200;
+	stopevent.state = 0;
 
 	if (presp && presp->vfe_resp)
 		resp = presp;
@@ -332,8 +374,6 @@ static int vfe_7x_config(struct msm_vfe_cfg_cmd_t *cmd, void *data)
 	void   *cmd_data_alloc = NULL;
 	long rc = 0;
 	struct msm_vfe_command_7k *vfecmd;
-
-	static uint8_t vfestopped;
 
 	vfecmd =
 			kmalloc(sizeof(struct msm_vfe_command_7k),

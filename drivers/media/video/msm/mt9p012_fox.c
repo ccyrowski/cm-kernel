@@ -1182,10 +1182,10 @@ int mt9p012_sensor_config(void __user *argp)
 			mt9p012_set_default_focus();
 		break;
 
-		case CFG_SET_LENS_SHADING:
-			CDBG("%s: CFG_SET_LENS_SHADING\n", __func__);
-			rc = mt9p012_lens_shading_enable(
-				cdata.cfg.lens_shading);
+	case CFG_SET_LENS_SHADING:
+		CDBG("%s: CFG_SET_LENS_SHADING\n", __func__);
+		rc = mt9p012_lens_shading_enable(cdata.cfg.lens_shading);
+		break;
 
 	default:
 		rc = -EFAULT;

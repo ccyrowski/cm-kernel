@@ -404,13 +404,15 @@ static void vfe_write_lens_roll_off_table(
 
 	/* first pack and write init table */
 	for (i = 0; i < VFE_ROLL_OFF_INIT_TABLE_SIZE; i++) {
-		data = ((uint32_t)(*initR)) | (((uint32_t)(*initGr)) << 16);
+		data = (((uint32_t)(*initR)) & 0x0000FFFF) |
+			(((uint32_t)(*initGr)) << 16);
 		initR++;
 		initGr++;
 
 		writel(data, ctrl->vfebase + VFE_DMI_DATA_LO);
 
-		data = ((uint32_t)(*initB)) | (((uint32_t)(*initGr))<<16);
+		data = (((uint32_t)(*initB)) & 0x0000FFFF) |
+			(((uint32_t)(*initGr))<<16);
 		initB++;
 		initGb++;
 
@@ -424,13 +426,15 @@ static void vfe_write_lens_roll_off_table(
 
 	/* pack and write delta table */
 	for (i = 0; i < VFE_ROLL_OFF_DELTA_TABLE_SIZE; i++) {
-		data = ((uint32_t)(*pDeltaR)) | (((uint32_t)(*pDeltaGr))<<16);
+		data = (((int32_t)(*pDeltaR)) & 0x0000FFFF) |
+			(((int32_t)(*pDeltaGr))<<16);
 		pDeltaR++;
 		pDeltaGr++;
 
 		writel(data, ctrl->vfebase + VFE_DMI_DATA_LO);
 
-		data = ((uint32_t)(*pDeltaB)) | (((uint32_t)(*pDeltaGb))<<16);
+		data = (((int32_t)(*pDeltaB)) & 0x0000FFFF) |
+			(((int32_t)(*pDeltaGb))<<16);
 		pDeltaB++;
 		pDeltaGb++;
 
@@ -2268,8 +2272,8 @@ void vfe_start(struct vfe_cmd_start *in)
 	uint32_t  demeven = 0;
 	uint32_t  demodd = 0;
 
-	/* derived from other commands.  ( camif config, axi output config,
-	 * etc )
+	/* derived from other commands.  (camif config, axi output config,
+	 * etc)
 	*/
 	struct vfe_cfg_t hwcfg;
 	struct vfe_upsample_cfg_t chromupcfg;

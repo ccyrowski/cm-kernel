@@ -167,6 +167,15 @@ struct axidata_t {
 	struct msm_pmem_region *region;
 };
 
+#ifdef CONFIG_MSM_CAMERA_FLASH
+int msm_camera_flash_set_led_state(unsigned led_state);
+#else
+static inline int msm_camera_flash_set_led_state(unsigned led_state)
+{
+	return -ENOTSUPP;
+}
+#endif
+
 /* Below functions are added for V4L2 kernel APIs */
 struct msm_driver {
 	struct msm_device_t *vmsm;

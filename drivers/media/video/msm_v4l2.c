@@ -42,6 +42,8 @@
 #define D(fmt, args...) do {} while (0)
 #endif
 
+#define PREVIEW_FRAMES_NUM 4
+
 struct msm_v4l2_device_t {
 	struct list_head read_queue;
 	struct v4l2_format current_cap_format;
@@ -294,6 +296,7 @@ static int msm_v4l2_qbuf(struct file *f, void *pctx, struct v4l2_buffer *pb)
 
 	struct msm_pmem_info_t meminfo;
 	struct msm_frame_t frame;
+	static int cnt;
 
 	if ((pb->flags >> 16) & 0x0001) {
 		/* this is for previwe */
@@ -336,7 +339,11 @@ static int msm_v4l2_qbuf(struct file *f, void *pctx, struct v4l2_buffer *pb)
 		meminfo.y_off            = 0;
 		/* meminfo.cbcr_off = (y_size + y_pad); */
 		meminfo.cbcr_off         = (pb->bytesused + y_pad);
-
+		if (cnt == PREVIEW_FRAMES_NUM - 1)
+			meminfo.active = 0;
+		else
+			meminfo.active = 1;
+		cnt++;
 		g_pmsm_v4l2_dev->drv->reg_pmem(&meminfo,
 			g_pmsm_v4l2_dev->drv->vmsm);
 
@@ -364,7 +371,7 @@ static int msm_v4l2_qbuf(struct file *f, void *pctx, struct v4l2_buffer *pb)
 	meminfo.y_off      = 0;
 	/* meminfo.cbcr_off = (y_size + y_pad); */
 	meminfo.cbcr_off   = (y_size + y_pad);
-
+	meminfo.active 	   = 1;
 	g_pmsm_v4l2_dev->drv->reg_pmem(&meminfo,
 		g_pmsm_v4l2_dev->drv->vmsm);
 	}

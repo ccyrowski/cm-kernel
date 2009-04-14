@@ -30,6 +30,62 @@ static struct class *msm_class;
 static dev_t msm_devno;
 static LIST_HEAD(msm_sensors);
 
+#define __CONTAINS(r, v, l, field) ({				\
+	typeof(r) __r = r;					\
+	typeof(v) __v = v;					\
+	typeof(v) __e = __v + l;				\
+	int res = __v >= __r->field &&				\
+		__e <= __r->field + __r->len;			\
+	res;							\
+})
+
+#define CONTAINS(r1, r2, field) ({				\
+	typeof(r2) __r2 = r2;					\
+	__CONTAINS(r1, __r2->field, __r2->len, field);		\
+})
+
+#define IN_RANGE(r, v, field) ({				\
+	typeof(r) __r = r;					\
+	typeof(v) __vv = v;					\
+	int res = ((__vv >= __r->field) &&			\
+		(__vv < (__r->field + __r->len)));		\
+	res;							\
+})
+
+#define OVERLAPS(r1, r2, field) ({				\
+	typeof(r1) __r1 = r1;					\
+	typeof(r2) __r2 = r2;					\
+	typeof(__r2->field) __v = __r2->field;			\
+	typeof(__v) __e = __v + __r2->len - 1;			\
+	int res = (IN_RANGE(__r1, __v, field) ||		\
+		   IN_RANGE(__r1, __e, field));                 \
+	res;							\
+})
+
+static int check_overlap(struct hlist_head *ptype,
+			  unsigned long paddr,
+			  unsigned long len)
+{
+	struct msm_pmem_region *region;
+	struct msm_pmem_region t = { .paddr = paddr, .len = len };
+	struct hlist_node *node;
+
+	hlist_for_each_entry(region, node, ptype, list) {
+		if (CONTAINS(region, &t, paddr) || CONTAINS(&t, region, paddr) ||
+		    OVERLAPS(region, &t, paddr)) {
+			printk(KERN_ERR
+				" region (PHYS %p len %ld)"
+				" clashes with registered region"
+				" (paddr %p len %ld)\n",
+				(void *)t.paddr, t.len,
+				(void *)region->paddr, region->len);
+			return -1;
+		}
+	}
+
+	return 0;
+}
+
 static int msm_pmem_table_add(struct hlist_head *ptype,
 	struct msm_pmem_info_t *info)
 {
@@ -47,8 +103,11 @@ static int msm_pmem_table_add(struct hlist_head *ptype,
 		return rc;
 	}
 
+	if (check_overlap(ptype, paddr, len) < 0)
+		return -EINVAL;
+
 	CDBG("__msm_register_pmem: type = %d, paddr = 0x%lx, vaddr = 0x%lx\n",
-		info->type, paddr, (unsigned long)pinfo->vaddr);
+		info->type, paddr, (unsigned long)info->vaddr);
 
 	region = kmalloc(sizeof(*region), GFP_KERNEL);
 	if (!region)
@@ -307,6 +366,10 @@ static int msm_get_frame(void __user *arg,
 		return -EFAULT;
 	}
 
+	rc = __msm_get_frame(&frame, msm);
+	if (rc < 0)
+		return rc;
+
 	if (msm->croplen) {
 		if (frame.croplen > msm->croplen) {
 			pr_err("msm_get_frame: invalid frame croplen %d\n",
@@ -315,16 +378,12 @@ static int msm_get_frame(void __user *arg,
 		}
 
 		if (copy_to_user((void *)frame.cropinfo,
-				&msm->cropinfo,
+				msm->cropinfo,
 				msm->croplen)) {
 			ERR_COPY_TO_USER();
 			return -EFAULT;
 		}
 	}
-
-	rc = __msm_get_frame(&frame, msm);
-	if (rc < 0)
-		return rc;
 
 	if (copy_to_user((void *)arg,
 				&frame, sizeof(struct msm_frame_t))) {
@@ -690,7 +749,7 @@ static int msm_get_stats(void __user *arg,
 			}
 		} else if (data->type == VFE_MSG_SNAPSHOT) {
 
-			unsigned pp_en = msm->pict_pp;
+			uint8_t pp_en = msm->pict_pp;
 			struct msm_postproc_t buf;
 			struct msm_pmem_region region;
 
@@ -1052,6 +1111,7 @@ static int msm_get_sensor_info(void __user *arg,
 	memcpy(&info.name[0],
 		sdata->sensor_name,
 		MAX_SENSOR_NAME);
+	info.flash_enabled = sdata->flash_type != MSM_CAMERA_FLASH_NONE;
 
 	/* copy back to user space */
 	if (copy_to_user((void *)arg,
@@ -1373,6 +1433,10 @@ static int msm_get_pic(void __user *arg,
 		return -EFAULT;
 	}
 
+	rc = __msm_get_pic(&ctrlcmd_t, msm);
+	if (rc < 0)
+		return rc;
+
 	if (msm->croplen) {
 		if (ctrlcmd_t.length < msm->croplen) {
 			pr_err("msm_get_pic: invalid len %d\n",
@@ -1380,16 +1444,12 @@ static int msm_get_pic(void __user *arg,
 			return -EINVAL;
 		}
 		if (copy_to_user(ctrlcmd_t.value,
-				&msm->cropinfo,
+				msm->cropinfo,
 				msm->croplen)) {
 			ERR_COPY_TO_USER();
 			return -EFAULT;
 		}
 	}
-
-	rc = __msm_get_pic(&ctrlcmd_t, msm);
-	if (rc < 0)
-		return rc;
 
 	if (copy_to_user((void *)arg,
 		&ctrlcmd_t,
@@ -1420,7 +1480,7 @@ static int msm_set_crop(void __user *arg,
 	} else if (msm->croplen < crop.len)
 		return -EINVAL;
 
-	if (copy_from_user(&msm->cropinfo,
+	if (copy_from_user(msm->cropinfo,
 				crop.info,
 				crop.len)) {
 		ERR_COPY_FROM_USER();
@@ -1442,7 +1502,7 @@ static int msm_pict_pp_done(void __user *arg,
 	unsigned long flags;
 	int rc = 0;
 
-	unsigned pp_en = msm->pict_pp;
+	uint8_t pp_en = msm->pict_pp;
 
 	if (!pp_en)
 		return -EINVAL;
@@ -1556,7 +1616,7 @@ static long msm_ioctl(struct file *filep, unsigned int cmd,
 		return msm_set_crop(argp, pmsm);
 
 	case MSM_CAM_IOCTL_PICT_PP: {
-		unsigned enable;
+		uint8_t enable;
 		if (copy_from_user(&enable, argp, sizeof(enable))) {
 			ERR_COPY_FROM_USER();
 			return -EFAULT;
@@ -1571,6 +1631,13 @@ static long msm_ioctl(struct file *filep, unsigned int cmd,
 
 	case MSM_CAM_IOCTL_SENSOR_IO_CFG:
 		return pmsm->sctrl.s_config(argp);
+
+	case MSM_CAM_IOCTL_FLASH_LED_CFG: {
+		uint32_t led_state;
+		if (copy_from_user(&led_state, argp, sizeof(led_state)))
+			return -EFAULT;
+		return msm_camera_flash_set_led_state(led_state);
+	}
 
 	default:
 		break;
@@ -1616,6 +1683,21 @@ static int msm_release(struct inode *node, struct file *filep)
 	struct msm_queue_cmd_t *qcmd = NULL;
 	unsigned long flags;
 	struct msm_device_t *pmsm = filep->private_data;
+
+	while (msm_camera_pict_pending(pmsm)) {
+		spin_lock_irqsave(&pmsm->sync.pict_frame_q_lock,
+			flags);
+		qcmd = list_first_entry(&pmsm->sync.pict_frame_q,
+			struct msm_queue_cmd_t, list);
+		spin_unlock_irqrestore(&pmsm->sync.pict_frame_q_lock,
+			flags);
+
+		if (qcmd) {
+			list_del(&qcmd->list);
+			kfree(qcmd->command);
+			kfree(qcmd);
+		}
+	};
 
 	mutex_lock(&pmsm->msm_lock);
 	pmsm->opencnt--;

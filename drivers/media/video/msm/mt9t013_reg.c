@@ -114,7 +114,7 @@ struct reg_struct mt9t013_reg_pat[2] = {
 	0x0024,
 
 	/* x_output_size REG=0x034C */
-	2066,
+	2064,
 
 	/* y_output_size REG=0x034E */
 	1544,

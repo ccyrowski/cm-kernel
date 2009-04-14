@@ -244,4 +244,12 @@ struct msm_vfe_command_7k {
 	uint16_t length;
 	void     *value;
 };
+
+struct stop_event {
+  wait_queue_head_t wait;
+	int state;
+  int timeout;
+};
+
+
 #endif /* __MSM_VFE7X_H__ */

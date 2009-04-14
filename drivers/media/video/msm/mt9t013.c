@@ -1269,6 +1269,7 @@ int mt9t013_sensor_config(void __user *argp)
 
 	down(&mt9t013_sem);
 
+	CDBG("mt9t013_sensor_config: cfgtype = %d\n", cdata.cfgtype);
 		switch (cdata.cfgtype) {
 		case CFG_GET_PICT_FPS:
 				mt9t013_get_pict_fps(

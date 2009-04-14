@@ -67,13 +67,20 @@
 	_IOW(MSM_CAM_IOCTL_MAGIC, 18, struct crop_info_t *)
 
 #define MSM_CAM_IOCTL_PICT_PP \
-	_IOW(MSM_CAM_IOCTL_MAGIC, 19, unsigned)
+	_IOW(MSM_CAM_IOCTL_MAGIC, 19, uint8_t *)
 
 #define MSM_CAM_IOCTL_PICT_PP_DONE \
 	_IOW(MSM_CAM_IOCTL_MAGIC, 20, struct msm_snapshot_pp_status_t *)
 
 #define MSM_CAM_IOCTL_SENSOR_IO_CFG \
 	_IOW(MSM_CAM_IOCTL_MAGIC, 21, struct sensor_cfg_data_t *)
+
+#define MSM_CAMERA_LED_OFF  0
+#define MSM_CAMERA_LED_LOW  1
+#define MSM_CAMERA_LED_HIGH 2
+
+#define MSM_CAM_IOCTL_FLASH_LED_CFG \
+	_IOW(MSM_CAM_IOCTL_MAGIC, 22, unsigned *)
 
 
 #define MAX_SENSOR_NUM  3
@@ -410,5 +417,6 @@ enum sensor_get_info_t {
 
 struct msm_camsensor_info_t {
 	char name[MAX_SENSOR_NAME];
+	uint8_t flash_enabled;
 };
 #endif /* __LINUX_MSM_CAMERA_H */
