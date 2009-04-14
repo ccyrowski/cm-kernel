@@ -349,40 +349,40 @@ static int msm_get_frame(void __user *arg,
 static int msm_enable_vfe(void __user *arg,
 	struct msm_device_t *msm)
 {
-	int rc = 0;
-	struct camera_enable_cmd_t *cfg;
-	struct camera_enable_cmd_t cfg_t;
+	int rc = -EIO;
+	struct camera_enable_cmd_t cfg;
 
-	if (copy_from_user(&cfg_t,
+	if (copy_from_user(&cfg,
 			arg,
 			sizeof(struct camera_enable_cmd_t))) {
 		ERR_COPY_FROM_USER();
 		return -EFAULT;
 	}
 
-	cfg = kmalloc(sizeof(struct camera_enable_cmd_t),
-					GFP_KERNEL);
-	if (!cfg)
-		return -ENOMEM;
+	if (msm->vfefn.vfe_enable)
+		rc = msm->vfefn.vfe_enable(&cfg);
 
-	cfg->name = kmalloc(cfg_t.length, GFP_KERNEL);
+	CDBG("msm_enable_vfe: returned rc = %d\n", rc);
+	return rc;
+}
 
-	if (!(cfg->name)) {
-		kfree(cfg);
-		return -ENOMEM;
-	}
+static int msm_disable_vfe(void __user *arg,
+	struct msm_device_t *msm)
+{
+	int rc = -EIO;
+	struct camera_enable_cmd_t cfg;
 
-	if (copy_from_user(cfg->name, (void *)cfg_t.name, cfg_t.length)) {
+	if (copy_from_user(&cfg,
+			arg,
+			sizeof(struct camera_enable_cmd_t))) {
 		ERR_COPY_FROM_USER();
 		return -EFAULT;
 	}
 
-	if (msm->vfefn.vfe_enable)
-		rc = msm->vfefn.vfe_enable(cfg);
+	if (msm->vfefn.vfe_disable)
+		rc = msm->vfefn.vfe_disable(&cfg, NULL);
 
-	CDBG("msm_enable_vfe: returned rc = %d\n", rc);
-
-	kfree(cfg);
+	CDBG("msm_disable_vfe: returned rc = %d\n", rc);
 	return rc;
 }
 
@@ -1458,6 +1458,11 @@ static long msm_ioctl(struct file *filep, unsigned int cmd,
 		/* This request comes from control thread:
 		* enable either QCAMTASK or VFETASK */
 		return msm_enable_vfe(argp, pmsm);
+
+	case MSM_CAM_IOCTL_DISABLE_VFE:
+		/* This request comes from control thread:
+		* disable either QCAMTASK or VFETASK */
+		return msm_disable_vfe(argp, pmsm);
 
 	case MSM_CAM_IOCTL_CTRL_CMD_DONE:
 		/* Config thread notifies the result of contrl command */

@@ -176,9 +176,9 @@ struct msm_vfe_cfg_cmd_t {
 	void *value;
 };
 
+#define MAX_CAMERA_ENABLE_NAME_LEN 32
 struct camera_enable_cmd_t {
-	char *name;
-	uint16_t length;
+	char name[MAX_CAMERA_ENABLE_NAME_LEN];
 };
 
 enum msm_pmem_t {
