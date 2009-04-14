@@ -6,6 +6,7 @@
 /* FIXME: management of mutexes */
 /* FIXME: msm_pmem_region_lookup return values */
 /* FIXME: way too many copy to/from user */
+/* FIXME: does region->active mean free */
 
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -70,6 +71,7 @@ static int msm_pmem_table_add(struct hlist_head *ptype,
 	return 0;
 }
 
+/* return of 0 means failure */
 static uint8_t msm_pmem_region_lookup(struct hlist_head *ptype,
 	enum msm_pmem_t type, struct msm_pmem_region *reg, uint8_t maxcount)
 {
@@ -82,15 +84,11 @@ static uint8_t msm_pmem_region_lookup(struct hlist_head *ptype,
 	regptr = reg;
 
 	hlist_for_each_entry(region, node, ptype, list) {
-
-		if ((region->type == type) &&
-				(region->active)) {
+		if (region->type == type && region->active) {
 			*regptr = *region;
-
 			rc += 1;
 			if (rc >= maxcount)
 				break;
-
 			regptr++;
 		}
 	}
@@ -106,13 +104,11 @@ static unsigned long msm_pmem_frame_ptov_lookup(unsigned long pyaddr,
 	struct hlist_node *node;
 	unsigned long rc = 0;
 
-	hlist_for_each_entry(region, node,
-		&msm->sync.frame, list) {
-
+	hlist_for_each_entry(region, node, &msm->sync.frame, list) {
 		if (pyaddr == (region->paddr + region->y_off) &&
-		pcbcraddr == (region->paddr + region->cbcr_off) &&
-		region->active) {
-
+				pcbcraddr == (region->paddr +
+					      region->cbcr_off) &&
+				region->active) {
 			/* offset since we could pass vaddr inside
 			 * a registerd pmem buffer */
 			rc = (unsigned long)(region->vaddr);
@@ -133,28 +129,22 @@ static unsigned long msm_pmem_stats_ptov_lookup(unsigned long addr, int *fd,
 {
 	struct msm_pmem_region *region;
 	struct hlist_node *node;
-	unsigned long rc = 0;
 
-	hlist_for_each_entry(region, node,
-		&msm->sync.stats, list) {
-
-		if (addr == region->paddr &&
-				region->active) {
+	hlist_for_each_entry(region, node, &msm->sync.stats, list) {
+		if (addr == region->paddr && region->active) {
 			/* offset since we could pass vaddr inside a
-			*  registered pmem buffer */
-			rc = (unsigned long)(region->vaddr);
+			 * registered pmem buffer */
 			*fd = region->fd;
 			region->active = 0;
-			return rc;
+			return (unsigned long)(region->vaddr);
 		}
 	}
 
 	return 0;
 }
 
-static void msm_pmem_frame_vtop_lookup(unsigned long buffer,
-	uint32_t yoff, uint32_t cbcroff, int fd, unsigned long *phyaddr,
-	struct msm_device_t *msm)
+static unsigned long msm_pmem_frame_vtop_lookup(unsigned long buffer,
+	uint32_t yoff, uint32_t cbcroff, int fd, struct msm_device_t *msm)
 {
 	struct msm_pmem_region *region;
 	struct hlist_node *node;
@@ -168,37 +158,29 @@ static void msm_pmem_frame_vtop_lookup(unsigned long buffer,
 				(region->fd == fd) &&
 				(region->active == 0)) {
 
-			*phyaddr = region->paddr;
 			region->active = 1;
-
-			return;
+			return region->paddr;
 		}
 	}
 
-	*phyaddr = 0;
+	return 0;
 }
 
-static void msm_pmem_stats_vtop_lookup(unsigned long buffer,
-	int fd, unsigned long *phyaddr, struct msm_device_t *msm)
+static unsigned long msm_pmem_stats_vtop_lookup(unsigned long buffer,
+	int fd, struct msm_device_t *msm)
 {
 	struct msm_pmem_region *region;
 	struct hlist_node *node;
 
-	hlist_for_each_entry(region, node,
-		&msm->sync.stats, list) {
-
+	hlist_for_each_entry(region, node, &msm->sync.stats, list) {
 		if (((unsigned long)(region->vaddr) == buffer) &&
-				(region->fd == fd) &&
-				region->active == 0) {
-
-			*phyaddr = region->paddr;
+				(region->fd == fd) && region->active == 0) {
 			region->active = 1;
-
-			return;
+			return region->paddr;
 		}
 	}
 
-	*phyaddr = 0;
+	return 0;
 }
 
 static int __msm_pmem_table_del(struct msm_pmem_info_t *pinfo,
@@ -294,8 +276,17 @@ static int __msm_get_frame(struct msm_frame_t *frame,
 		msm_pmem_frame_ptov_lookup(pphy->y_phy,
 			pphy->cbcr_phy, &(frame->y_off),
 			&(frame->cbcr_off), &(frame->fd), msm);
+	if (!frame->buffer) {
+		pr_err("%s: cannot get frame, invalid lookup address "
+			"y=%x cbcr=%x offset=%d\n",
+			__FUNCTION__,
+			pphy->y_phy,
+			pphy->cbcr_phy,
+			frame->y_off);
+		rc = -EINVAL;
+	}
 
-	CDBG("__msm_get_frame: y= 0x%x, cbcr= 0x%x, qcmd= 0x%x, virt_addr= 0x%x\n",
+	CDBG("__msm_get_frame: y=0x%x, cbcr=0x%x, qcmd=0x%x, virt_addr=0x%x\n",
 		pphy->y_phy, pphy->cbcr_phy, (int) qcmd, (int) frame->buffer);
 
 	kfree(qcmd->command);
@@ -667,6 +658,12 @@ static int msm_get_stats(void __user *arg,
 			stats.buffer =
 			msm_pmem_stats_ptov_lookup(data->phy.sbuf_phy,
 				&(stats.fd), msm);
+			if (!stats.buffer) {
+				pr_err("%s: msm_pmem_stats_ptov_lookup failed\n",
+					__FUNCTION__);
+				rc = -EINVAL;
+				goto failure;
+			}
 
 			if (copy_to_user((void *)(se.stats_event.data),
 					&stats,
@@ -725,6 +722,11 @@ static int msm_get_stats(void __user *arg,
 						(unsigned long)region.vaddr;
 
 						buf.fmain.fd = region.fd;
+					}
+					else {
+						pr_err("%s: pmem region lookup failed\n",
+							__FUNCTION__);
+						rc = -EINVAL;
 					}
 				}
 
@@ -890,55 +892,81 @@ end:
 static int msm_config_vfe(void __user *arg,
 	struct msm_device_t *msm)
 {
-	struct msm_vfe_cfg_cmd_t cfgcmd_t;
+	struct msm_vfe_cfg_cmd_t cfgcmd;
 	struct msm_pmem_region region[8];
 	struct axidata_t axi_data;
-	int rc = 0;
+	void *data = NULL;
+	int rc = -EIO;
 
 	memset(&axi_data, 0, sizeof(axi_data));
 
-	if (copy_from_user(&cfgcmd_t, arg, sizeof(cfgcmd_t))) {
+	if (copy_from_user(&cfgcmd, arg, sizeof(cfgcmd))) {
 		ERR_COPY_FROM_USER();
 		return -EFAULT;
 	}
 
-	if (cfgcmd_t.cmd_type == CMD_STATS_ENABLE) {
+	switch(cfgcmd.cmd_type) {
+	case CMD_STATS_ENABLE:
 		axi_data.bufnum1 =
 			msm_pmem_region_lookup(&msm->sync.stats,
-		MSM_PMEM_AEC_AWB, &region[0],
-		NUM_WB_EXP_STAT_OUTPUT_BUFFERS);
+					MSM_PMEM_AEC_AWB, &region[0],
+					NUM_WB_EXP_STAT_OUTPUT_BUFFERS);
+		if (!axi_data.bufnum1) {
+			pr_err("%s: pmem region lookup error\n", __FUNCTION__);
+			return -EINVAL;
+		}
 		axi_data.region = &region[0];
-
-	} else if (cfgcmd_t.cmd_type == CMD_STATS_AF_ENABLE) {
+		data = &axi_data;
+		break;
+	case CMD_STATS_AF_ENABLE:
 		axi_data.bufnum1 =
 			msm_pmem_region_lookup(&msm->sync.stats,
-			MSM_PMEM_AF, &region[0],
-			NUM_AF_STAT_OUTPUT_BUFFERS);
+					MSM_PMEM_AF, &region[0],
+					NUM_AF_STAT_OUTPUT_BUFFERS);
+		if (!axi_data.bufnum1) {
+			pr_err("%s: pmem region lookup error\n", __FUNCTION__);
+			return -EINVAL;
+		}
 		axi_data.region = &region[0];
+		data = &axi_data;
+		break;
+	case CMD_GENERAL:
+	case CMD_STATS_DISABLE:
+		break;
+	default:
+		pr_err("%s: unknown command type %d\n",
+			__FUNCTION__, cfgcmd.cmd_type);
+		return -EINVAL;
 	}
 
+
 	if (msm->vfefn.vfe_config)
-		rc = msm->vfefn.vfe_config(&cfgcmd_t, &(axi_data));
+		rc = msm->vfefn.vfe_config(&cfgcmd, data);
 
 	return rc;
 }
 
-static int msm_frame_axi_cfg(struct msm_vfe_cfg_cmd_t *cfgcmd_t,
+static int msm_frame_axi_cfg(struct msm_vfe_cfg_cmd_t *cfgcmd,
 	struct msm_device_t *msm)
 {
-	int rc = 0;
+	int rc = -EIO;
 	struct axidata_t axi_data;
+	void *data = &axi_data;
 	struct msm_pmem_region region[8];
 	enum msm_pmem_t mtype;
 
 	memset(&axi_data, 0, sizeof(axi_data));
 
-	switch (cfgcmd_t->cmd_type) {
+	switch (cfgcmd->cmd_type) {
 	case CMD_AXI_CFG_OUT1:
 		mtype = MSM_PMEM_OUTPUT1;
 		axi_data.bufnum1 =
 			msm_pmem_region_lookup(&msm->sync.frame, mtype,
 				&region[0], 8);
+		if (!axi_data.bufnum1) {
+			pr_err("%s: pmem region lookup error\n", __FUNCTION__);
+			return -EINVAL;
+		}
 		break;
 
 	case CMD_AXI_CFG_OUT2:
@@ -946,6 +974,10 @@ static int msm_frame_axi_cfg(struct msm_vfe_cfg_cmd_t *cfgcmd_t,
 		axi_data.bufnum2 =
 			msm_pmem_region_lookup(&msm->sync.frame, mtype,
 				&region[0], 8);
+		if (!axi_data.bufnum2) {
+			pr_err("%s: pmem region lookup error\n", __FUNCTION__);
+			return -EINVAL;
+		}
 		break;
 
 	case CMD_AXI_CFG_SNAP_O1_AND_O2:
@@ -953,11 +985,19 @@ static int msm_frame_axi_cfg(struct msm_vfe_cfg_cmd_t *cfgcmd_t,
 		axi_data.bufnum1 =
 			msm_pmem_region_lookup(&msm->sync.frame, mtype,
 				&region[0], 8);
+		if (!axi_data.bufnum1) {
+			pr_err("%s: pmem region lookup error\n", __FUNCTION__);
+			return -EINVAL;
+		}
 
 		mtype = MSM_PMEM_MAINIMG;
 		axi_data.bufnum2 =
 			msm_pmem_region_lookup(&msm->sync.frame, mtype,
 				&region[axi_data.bufnum1], 8);
+		if (!axi_data.bufnum2) {
+			pr_err("%s: pmem region lookup error\n", __FUNCTION__);
+			return -EINVAL;
+		}
 		break;
 
 	case CMD_RAW_PICT_AXI_CFG:
@@ -965,17 +1005,27 @@ static int msm_frame_axi_cfg(struct msm_vfe_cfg_cmd_t *cfgcmd_t,
 		axi_data.bufnum2 =
 			msm_pmem_region_lookup(&msm->sync.frame, mtype,
 				&region[0], 8);
+		if (!axi_data.bufnum2) {
+			pr_err("%s: pmem region lookup error\n", __FUNCTION__);
+			return -EINVAL;
+		}
+		break;
+
+	case CMD_GENERAL:
+		data = NULL;
 		break;
 
 	default:
-		break;
+		pr_err("%s: unknown command type %d\n",
+			__FUNCTION__, cfgcmd->cmd_type);
+		return -EINVAL;
 	}
 
 	axi_data.region = &region[0];
 
 	/* send the AXI configuration command to driver */
 	if (msm->vfefn.vfe_config)
-		rc = msm->vfefn.vfe_config(cfgcmd_t, &axi_data);
+		rc = msm->vfefn.vfe_config(cfgcmd, data);
 
 	return rc;
 }
@@ -1018,26 +1068,25 @@ static int __msm_put_frame_buf(struct msm_frame_t *pb,
 	struct msm_device_t *msm)
 {
 	unsigned long pphy;
-	struct msm_vfe_cfg_cmd_t cfgcmd_t;
+	struct msm_vfe_cfg_cmd_t cfgcmd;
 
-	int rc = 0;
+	int rc = -EIO;
 
-	msm_pmem_frame_vtop_lookup(pb->buffer,
-		pb->y_off, pb->cbcr_off, pb->fd, &pphy, msm);
-
-	CDBG("rel: vaddr = 0x%lx, paddr = 0x%lx\n",
-		pb->buffer, pphy);
+	pphy = msm_pmem_frame_vtop_lookup(pb->buffer,
+		pb->y_off, pb->cbcr_off, pb->fd, msm);
 
 	if (pphy != 0) {
-
-		cfgcmd_t.cmd_type = CMD_FRAME_BUF_RELEASE;
-		cfgcmd_t.value    = (void *)pb;
-
+		CDBG("rel: vaddr = 0x%lx, paddr = 0x%lx\n",
+			pb->buffer, pphy);
+		cfgcmd.cmd_type = CMD_FRAME_BUF_RELEASE;
+		cfgcmd.value    = (void *)pb;
 		if (msm->vfefn.vfe_config)
-			rc =
-				msm->vfefn.vfe_config(&cfgcmd_t, &pphy);
-	} else
-		rc = -EFAULT;
+			rc = msm->vfefn.vfe_config(&cfgcmd, &pphy);
+	} else {
+		pr_err("%s: msm_pmem_frame_vtop_lookup failed\n",
+			__FUNCTION__);
+		rc = -EINVAL;
+	}
 
 	return rc;
 }
@@ -1100,31 +1149,48 @@ static int msm_register_pmem(void __user *arg,
 	return __msm_register_pmem(&info, msm);
 }
 
-static int msm_stats_axi_cfg(struct msm_vfe_cfg_cmd_t *cfgcmd_t,
+static int msm_stats_axi_cfg(struct msm_vfe_cfg_cmd_t *cfgcmd,
 	struct msm_device_t *msm)
 {
-	int rc = 0;
+	int rc = -EIO;
 	struct axidata_t axi_data;
+	void *data = &axi_data;
 
 	struct msm_pmem_region region[3];
 	enum msm_pmem_t mtype = MSM_PMEM_MAX;
 
 	memset(&axi_data, 0, sizeof(axi_data));
 
-	if (cfgcmd_t->cmd_type == CMD_STATS_AXI_CFG)
+	switch (cfgcmd->cmd_type) {
+	case CMD_STATS_AXI_CFG:
 		mtype = MSM_PMEM_AEC_AWB;
-	else if (cfgcmd_t->cmd_type == CMD_STATS_AF_AXI_CFG)
+		break;
+	case CMD_STATS_AF_AXI_CFG:
 		mtype = MSM_PMEM_AF;
+		break;
+	case CMD_GENERAL:
+		data = NULL;
+		break;
+	default:
+		pr_err("%s: unknown command type %d\n",
+			__FUNCTION__, cfgcmd->cmd_type);
+		return -EINVAL;
+	}
 
-	axi_data.bufnum1 =
-		msm_pmem_region_lookup(&msm->sync.stats, mtype,
-			&region[0], NUM_WB_EXP_STAT_OUTPUT_BUFFERS);
-
-	axi_data.region = &region[0];
+	if (cfgcmd->cmd_type != CMD_GENERAL) {
+		axi_data.bufnum1 =
+			msm_pmem_region_lookup(&msm->sync.stats, mtype,
+				&region[0], NUM_WB_EXP_STAT_OUTPUT_BUFFERS);
+		if (!axi_data.bufnum1) {
+			pr_err("%s: pmem region lookup error\n", __FUNCTION__);
+			return -EINVAL;
+		}
+		axi_data.region = &region[0];
+	}
 
 	/* send the AEC/AWB STATS configuration command to driver */
 	if (msm->vfefn.vfe_config)
-		rc = msm->vfefn.vfe_config(cfgcmd_t, &axi_data);
+		rc = msm->vfefn.vfe_config(cfgcmd, &axi_data);
 
 	return rc;
 }
@@ -1132,11 +1198,11 @@ static int msm_stats_axi_cfg(struct msm_vfe_cfg_cmd_t *cfgcmd_t,
 static int msm_put_stats_buffer(void __user *arg,
 	struct msm_device_t *msm)
 {
-	int rc = 0;
+	int rc = -EIO;
 
 	struct msm_stats_buf_t buf;
 	unsigned long pphy;
-	struct msm_vfe_cfg_cmd_t cfgcmd_t;
+	struct msm_vfe_cfg_cmd_t cfgcmd;
 
 	if (copy_from_user(&buf, arg,
 				sizeof(struct msm_stats_buf_t))) {
@@ -1145,24 +1211,25 @@ static int msm_put_stats_buffer(void __user *arg,
 	}
 
 	CDBG("msm_put_stats_buffer\n");
-	msm_pmem_stats_vtop_lookup(buf.buffer, buf.fd, &pphy, msm);
+	pphy = msm_pmem_stats_vtop_lookup(buf.buffer, buf.fd, msm);
 
 	if (pphy != 0) {
 		if (buf.type == STAT_AEAW)
-			cfgcmd_t.cmd_type = CMD_STATS_BUF_RELEASE;
+			cfgcmd.cmd_type = CMD_STATS_BUF_RELEASE;
 		else if (buf.type == STAT_AF)
-			cfgcmd_t.cmd_type = CMD_STATS_AF_BUF_RELEASE;
+			cfgcmd.cmd_type = CMD_STATS_AF_BUF_RELEASE;
 		else {
-			pr_err("msm_put_stats_buffer: invalid buf type %d\n",
+			pr_err("%s: invalid buf type %d\n",
+				__FUNCTION__,
 				buf.type);
 			rc = -EINVAL;
 			goto put_done;
 		}
 
-		cfgcmd_t.value = (void *)&buf;
+		cfgcmd.value = (void *)&buf;
 
 		if (msm->vfefn.vfe_config) {
-			rc = msm->vfefn.vfe_config(&cfgcmd_t, &pphy);
+			rc = msm->vfefn.vfe_config(&cfgcmd, &pphy);
 			if (rc < 0)
 				pr_err("msm_put_stats_buffer: "\
 					"vfe_config err %d\n", rc);
@@ -1170,7 +1237,7 @@ static int msm_put_stats_buffer(void __user *arg,
 			pr_err("msm_put_stats_buffer: vfe_config is NULL\n");
 	} else {
 		pr_err("msm_put_stats_buffer: NULL physical address\n");
-		rc = -EFAULT;
+		rc = -EINVAL;
 	}
 
 put_done:
@@ -1180,27 +1247,28 @@ put_done:
 static int msm_axi_config(void __user *arg,
 	struct msm_device_t *msm)
 {
-	struct msm_vfe_cfg_cmd_t cfgcmd_t;
+	struct msm_vfe_cfg_cmd_t cfgcmd;
 
-	if (copy_from_user(&cfgcmd_t, arg, sizeof(cfgcmd_t))) {
+	if (copy_from_user(&cfgcmd, arg, sizeof(cfgcmd))) {
 		ERR_COPY_FROM_USER();
 		return -EFAULT;
 	}
 
-	switch (cfgcmd_t.cmd_type) {
+	switch (cfgcmd.cmd_type) {
 	case CMD_AXI_CFG_OUT1:
 	case CMD_AXI_CFG_OUT2:
 	case CMD_AXI_CFG_SNAP_O1_AND_O2:
 	case CMD_RAW_PICT_AXI_CFG:
-		return msm_frame_axi_cfg(&cfgcmd_t, msm);
+		return msm_frame_axi_cfg(&cfgcmd, msm);
 
 	case CMD_STATS_AXI_CFG:
 	case CMD_STATS_AF_AXI_CFG:
-		return msm_stats_axi_cfg(&cfgcmd_t, msm);
+		return msm_stats_axi_cfg(&cfgcmd, msm);
 
 	default:
-		pr_err("msm_axi_config: unknown command type %d\n",
-			cfgcmd_t.cmd_type);
+		pr_err("%s: unknown command type %d\n",
+			__FUNCTION__,
+			cfgcmd.cmd_type);
 		return -EINVAL;
 	}
 
