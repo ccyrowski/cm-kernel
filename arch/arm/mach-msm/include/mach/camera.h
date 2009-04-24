@@ -109,7 +109,12 @@ struct msm_device_t {
 	struct msm_sync_t sync; /* most-frequently accessed */
 	struct msm_camvfe_fn_t vfefn;
 	struct device *device;
-	struct cdev cdev;
+	struct cdev cdev_frame;
+	struct cdev cdev_control;
+	struct cdev cdev_config;
+	int opened_frame;
+	int opened_control;
+	int opened_config;
 	struct platform_device *pdev;
 
 	struct mutex msm_lock;

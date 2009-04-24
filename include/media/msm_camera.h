@@ -8,7 +8,7 @@
 #include <asm/sizes.h>
 #include <linux/ioctl.h>
 
-#define MSM_MAX_CAMERA_NODES 10
+#define MSM_MAX_CAMERA_SENSORS 5
 
 #define MSM_CAM_IOCTL_MAGIC 'm'
 
@@ -51,7 +51,7 @@
 #define MSM_CAM_IOCTL_VFE_APPS_RESET \
 	_IOW(MSM_CAM_IOCTL_MAGIC, 13, struct camera_enable_cmd_t *)
 
-#define MSM_CAM_IOCTL_RELEASE_FRAMEE_BUFFER \
+#define MSM_CAM_IOCTL_RELEASE_FRAME_BUFFER \
 	_IOW(MSM_CAM_IOCTL_MAGIC, 14, struct camera_enable_cmd_t *)
 
 #define MSM_CAM_IOCTL_RELEASE_STATS_BUFFER \

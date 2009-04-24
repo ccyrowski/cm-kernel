@@ -1545,7 +1545,21 @@ pp_fail:
 	return rc;
 }
 
-static long msm_ioctl(struct file *filep, unsigned int cmd,
+static long msm_ioctl_common(struct msm_device_t *pmsm,
+				unsigned int cmd,
+				void __user *argp)
+{
+	switch (cmd) {
+	case MSM_CAM_IOCTL_REGISTER_PMEM:
+		return msm_register_pmem(argp, pmsm);
+	case MSM_CAM_IOCTL_UNREGISTER_PMEM:
+		return msm_pmem_table_del(argp, pmsm);
+	default:
+		return -EINVAL;
+	}
+}
+
+static long msm_ioctl_config(struct file *filep, unsigned int cmd,
 	unsigned long arg)
 {
 	void __user *argp = (void __user *)arg;
@@ -1557,17 +1571,6 @@ static long msm_ioctl(struct file *filep, unsigned int cmd,
 	case MSM_CAM_IOCTL_GET_SENSOR_INFO:
 		return msm_get_sensor_info(argp, pmsm);
 
-	case MSM_CAM_IOCTL_REGISTER_PMEM:
-		return msm_register_pmem(argp, pmsm);
-
-	case MSM_CAM_IOCTL_UNREGISTER_PMEM:
-		return msm_pmem_table_del(argp, pmsm);
-
-	case MSM_CAM_IOCTL_CTRL_COMMAND:
-		/* Coming from control thread, may need to wait for
-		* command status */
-		return msm_control(argp, pmsm);
-
 	case MSM_CAM_IOCTL_CONFIG_VFE:
 		/* Coming from config thread for update */
 		return msm_config_vfe(argp, pmsm);
@@ -1576,11 +1579,6 @@ static long msm_ioctl(struct file *filep, unsigned int cmd,
 		/* Coming from config thread wait
 		* for vfe statistics and control requests */
 		return msm_get_stats(argp, pmsm);
-
-	case MSM_CAM_IOCTL_GETFRAME:
-		/* Coming from frame thread to get frame
-		* after SELECT is done */
-		return msm_get_frame(argp, pmsm);
 
 	case MSM_CAM_IOCTL_ENABLE_VFE:
 		/* This request comes from control thread:
@@ -1600,17 +1598,11 @@ static long msm_ioctl(struct file *filep, unsigned int cmd,
 		msm_camio_vfe_blk_reset();
 		return 0;
 
-	case MSM_CAM_IOCTL_RELEASE_FRAMEE_BUFFER:
-		return msm_put_frame_buffer(argp, pmsm);
-
 	case MSM_CAM_IOCTL_RELEASE_STATS_BUFFER:
 		return msm_put_stats_buffer(argp, pmsm);
 
 	case MSM_CAM_IOCTL_AXI_CONFIG:
 		return msm_axi_config(argp, pmsm);
-
-	case MSM_CAM_IOCTL_GET_PICTURE:
-		return msm_get_pic(argp, pmsm);
 
 	case MSM_CAM_IOCTL_SET_CROP:
 		return msm_set_crop(argp, pmsm);
@@ -1640,10 +1632,45 @@ static long msm_ioctl(struct file *filep, unsigned int cmd,
 	}
 
 	default:
-		break;
+		return msm_ioctl_common(pmsm, cmd, argp);
 	}
+}
 
-	return -EINVAL;
+static long msm_ioctl_frame(struct file *filep, unsigned int cmd,
+	unsigned long arg)
+{
+	void __user *argp = (void __user *)arg;
+	struct msm_device_t *pmsm = filep->private_data;
+
+	switch (cmd) {
+	case MSM_CAM_IOCTL_GETFRAME:
+		/* Coming from frame thread to get frame
+		* after SELECT is done */
+		return msm_get_frame(argp, pmsm);
+	case MSM_CAM_IOCTL_RELEASE_FRAME_BUFFER:
+		return msm_put_frame_buffer(argp, pmsm);
+	default:
+		return -EINVAL;
+	}
+}
+
+
+static long msm_ioctl_control(struct file *filep, unsigned int cmd,
+	unsigned long arg)
+{
+	void __user *argp = (void __user *)arg;
+	struct msm_device_t *pmsm = filep->private_data;
+
+	switch (cmd) {
+	case MSM_CAM_IOCTL_CTRL_COMMAND:
+		/* Coming from control thread, may need to wait for
+		* command status */
+		return msm_control(argp, pmsm);
+	case MSM_CAM_IOCTL_GET_PICTURE:
+		return msm_get_pic(argp, pmsm);
+	default:
+		return msm_ioctl_common(pmsm, cmd, argp);
+	}
 }
 
 static int msm_frame_pending(struct msm_device_t *msm)
@@ -1675,14 +1702,13 @@ static int msm_frame_pending(struct msm_device_t *msm)
 	return yes;
 }
 
-static int msm_release(struct inode *node, struct file *filep)
+static int msm_release_common(struct msm_device_t *pmsm)
 {
 	struct msm_pmem_region *region;
 	struct hlist_node *hnode;
 	struct hlist_node *n;
 	struct msm_queue_cmd_t *qcmd = NULL;
 	unsigned long flags;
-	struct msm_device_t *pmsm = filep->private_data;
 
 	while (msm_camera_pict_pending(pmsm)) {
 		spin_lock_irqsave(&pmsm->sync.pict_frame_q_lock,
@@ -1800,6 +1826,24 @@ static int msm_release(struct inode *node, struct file *filep)
 
 	return 0;
 }
+
+#define DECLARE_MSM_RELEASE(type)                                     \
+static int msm_release_##type(struct inode *node, struct file *filep) \
+{                                                                     \
+	int rc = -EIO;                                                \
+	struct msm_device_t *pmsm = filep->private_data;              \
+	if (pmsm->opened_##type) {                                    \
+		rc = msm_release_common(pmsm);                        \
+		pmsm->opened_##type = rc < 0;                         \
+	}                                                             \
+	else                                                          \
+		pr_err("msm_release_"#type" is already closed.\n");   \
+	return rc;                                                    \
+}
+
+DECLARE_MSM_RELEASE(control);
+DECLARE_MSM_RELEASE(config);
+DECLARE_MSM_RELEASE(frame);
 
 static ssize_t msm_read(struct file *filep, char __user *arg,
 	size_t size, loff_t *loff)
@@ -1969,14 +2013,7 @@ static int __msm_open(struct msm_device_t *msm)
 		goto msm_open_done;
 	}
 
-	// FIXME: We should have ioctl to register as one of config,
-	// frame, or control thread.
 	mutex_lock(&msm->msm_lock);
-	if (msm->opencnt > 3) {
-		pr_err("__msm_open: max open count exceeded\n");
-		mutex_unlock(&msm->msm_lock);
-		return -EFAULT;
-	}
 	msm->opencnt++;
 	if (msm->opencnt == 1)
 		wake_lock(&msm->wake_lock);
@@ -2016,17 +2053,14 @@ msm_open_done:
 	return rc;
 }
 
-static int msm_open(struct inode *inode, struct file *filep)
+static int msm_open_common(struct inode *inode,
+		struct file *filep, struct msm_device_t *pmsm)
 {
-	struct msm_device_t *pmsm;
 	int rc = 0;
 
 	rc = nonseekable_open(inode, filep);
 	if (rc < 0)
 		goto cam_open_fail;
-
-	pmsm = container_of(inode->i_cdev,
-		struct msm_device_t, cdev);
 
 	rc = __msm_open(pmsm);
 	if (rc < 0)
@@ -2040,48 +2074,120 @@ cam_open_done:
 	return rc;
 }
 
-static struct file_operations msm_fops = {
+#define DEFINE_MSM_OPEN(type)                                                 \
+static int msm_open_##type(struct inode *inode, struct file *filep)           \
+{                                                                             \
+	int rc;                                                               \
+	struct msm_device_t *pmsm =                                           \
+		container_of(inode->i_cdev, struct msm_device_t, cdev_##type);\
+	if (pmsm->opened_##type) {                                            \
+		pr_err("msm_open_"#type": already opened\n");                 \
+		return -EBUSY;                                                \
+	}                                                                     \
+	rc = msm_open_common(inode, filep, pmsm);                             \
+	pmsm->opened_##type = rc >= 0;                                        \
+	return rc;                                                            \
+}
+
+DEFINE_MSM_OPEN(control);
+DEFINE_MSM_OPEN(config);
+DEFINE_MSM_OPEN(frame);
+
+static const struct file_operations msm_fops_config = {
 	.owner = THIS_MODULE,
-	.open = msm_open,
-	.unlocked_ioctl = msm_ioctl,
-	.release = msm_release,
+	.open = msm_open_config,
+	.unlocked_ioctl = msm_ioctl_config,
+	.release = msm_release_config,
 	.read = msm_read,
 	.write = msm_write,
 	.poll = msm_poll,
 };
 
-static int msm_setup_cdevs(struct msm_device_t *msm, dev_t devno)
+static const struct file_operations msm_fops_control = {
+	.owner = THIS_MODULE,
+	.open = msm_open_control,
+	.unlocked_ioctl = msm_ioctl_control,
+	.release = msm_release_control,
+	.read = msm_read,
+	.write = msm_write,
+	.poll = msm_poll,
+};
+
+static const struct file_operations msm_fops_frame = {
+	.owner = THIS_MODULE,
+	.open = msm_open_frame,
+	.unlocked_ioctl = msm_ioctl_frame,
+	.release = msm_release_frame,
+	.read = msm_read,
+	.write = msm_write,
+	.poll = msm_poll,
+};
+
+static int msm_setup_cdev(struct cdev *cdev,
+			int node,
+			dev_t devno,
+			const char *suffix,
+			const struct file_operations *fops)
 {
 	int rc = -ENODEV;
-	struct device *class_dev;
-	char name[20];
+	struct device *class_dev =
+		device_create(msm_class, NULL,
+			devno, NULL,
+			"%s%d", suffix, node);
 
-	sprintf(name, "%s%d", "msm_camera", MINOR(devno));
-	class_dev = device_create(msm_class, NULL, devno, "%s", name);
 	if (IS_ERR(class_dev))
 		goto setup_fail_return;
 
-	cdev_init(&msm->cdev, &msm_fops);
-	msm->cdev.owner = THIS_MODULE;
+	cdev_init(cdev, fops);
+	cdev->owner = THIS_MODULE;
 
-	rc = cdev_add(&msm->cdev, devno, 1);
+	rc = cdev_add(cdev, devno, 1);
 	if (rc < 0)
 		goto setup_fail_cleanup_all;
-
-	CDBG("msm_camera setup finishes!\n");
-	return 0;
+	return rc;
 
 setup_fail_cleanup_all:
-	cdev_del(&msm->cdev);
+	cdev_del(cdev);
 	device_destroy(msm_class, devno);
 setup_fail_return:
 	return rc;
 }
 
+static int msm_setup_cdevs(struct msm_device_t *msm, int node)
+{
+	int dev_num = 3 * node;
+	int rc = msm_setup_cdev(&msm->cdev_control, node,
+		MKDEV(MAJOR(msm_devno), dev_num++),
+		"control", &msm_fops_control);
+	if (rc < 0) {
+		pr_err("error creating control node: %d\n", rc);
+		return rc;
+	}
+	rc = msm_setup_cdev(&msm->cdev_frame, node,
+		MKDEV(MAJOR(msm_devno), dev_num++),
+		"frame", &msm_fops_frame);
+	if (rc < 0) {
+		pr_err("error creating frame node: %d\n", rc);
+		return rc;
+	}
+	rc = msm_setup_cdev(&msm->cdev_config, node,
+		MKDEV(MAJOR(msm_devno), dev_num),
+		"config", &msm_fops_config);
+	if (rc < 0)
+		pr_err("error creating config node: %d\n", rc);
+
+	CDBG("msm_camera setup finishes!\n");
+	return rc;
+}
+
 static void msm_tear_down_cdevs(struct msm_device_t *msm, dev_t devno)
 {
-	cdev_del(&msm->cdev);
+#if 0 /* FIXME: graceful teardown */
+	cdev_del(&msm->cdev_frame);
+	cdev_del(&msm->cdev_config);
+	cdev_del(&msm->cdev_control);
 	device_destroy(msm_class, devno);
+#endif
 }
 
 static int __msm_control(struct msm_ctrl_cmd_t *ctrlcmd,
@@ -2227,12 +2333,15 @@ int msm_camera_drv_start(struct platform_device *dev,
 	struct msm_sensor_ctrl_t sctrl;
 	struct msm_device_t *pmsm = NULL;
 	int rc = -ENODEV;
-	static int dev_num;
+	static int camera_node;
 
 	sdata = dev->dev.platform_data;
 
 	if (!msm_class) {
-		rc = alloc_chrdev_region(&msm_devno, 0, MSM_MAX_CAMERA_NODES, "msm_camera");
+		/* There are three device nodes per sensor */
+		rc = alloc_chrdev_region(&msm_devno, 0,
+				3 * MSM_MAX_CAMERA_SENSORS,
+				"msm_camera");
 		if (rc < 0)
 			goto start_region_fail;
 
@@ -2268,12 +2377,12 @@ int msm_camera_drv_start(struct platform_device *dev,
 	mutex_init(&pmsm->msm_lock);
 	mutex_init(&pmsm->msm_sem);
 
-	if (dev_num < MSM_MAX_CAMERA_NODES) {
-		rc = msm_setup_cdevs(pmsm,
-			MKDEV(MAJOR(msm_devno), dev_num));
+	if (camera_node < MSM_MAX_CAMERA_SENSORS) {
+		CDBG("setting camera node %d\n", camera_node);
+		rc = msm_setup_cdevs(pmsm, camera_node);
 		if (rc < 0)
 			goto cdevs_fail;
-		dev_num++;
+		camera_node++;
 	}
 	else goto cdevs_fail;
 
@@ -2300,7 +2409,7 @@ int msm_camera_drv_start(struct platform_device *dev,
 
 sensor_probe_fail:
 probe_on_fail:
-	msm_tear_down_cdevs(pmsm, MKDEV(MAJOR(msm_devno), --dev_num));
+//	msm_tear_down_cdevs(pmsm, MKDEV(MAJOR(msm_devno), --dev_num));
 cdevs_fail:
 	wake_lock_destroy(&pmsm->wake_lock);
 	kfree(pmsm);
