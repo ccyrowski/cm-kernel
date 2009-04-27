@@ -10,7 +10,6 @@
 #define OFF 0
 
 struct mutex vfe_lock;
-static uint32_t vfe_inuse;
 static void     *vfe_syncdata;
 
 static int vfe_enable(struct camera_enable_cmd_t *enable)
@@ -36,7 +35,6 @@ static void vfe_release(struct platform_device *dev)
 	vfe_cmd_release(dev);
 
 	mutex_lock(&vfe_lock);
-	vfe_inuse = 0;
 	vfe_syncdata = NULL;
 	mutex_unlock(&vfe_lock);
 }
@@ -746,34 +744,18 @@ static int vfe_init(struct msm_vfe_resp *presp,
 	return msm_camio_enable(dev);
 }
 
-void msm_camvfe_fn_init(struct msm_camvfe_fn_t *fptr)
+void msm_camvfe_fn_init(struct msm_camvfe_fn_t *fptr, void *data)
 {
 	fptr->vfe_init    = vfe_init;
 	fptr->vfe_enable  = vfe_enable;
 	fptr->vfe_config  = vfe_config;
 	fptr->vfe_disable = vfe_disable;
 	fptr->vfe_release = vfe_release;
-}
-
-int msm_camvfe_check(void *data)
-{
-	int rc = 0;
-
-	mutex_lock(&vfe_lock);
-	if (!vfe_inuse) {
-		vfe_inuse++;
-		vfe_syncdata = data;
-	} else if (data != vfe_syncdata) {
-		rc = -EBUSY;
-	}
-	mutex_unlock(&vfe_lock);
-
-	return rc;
+	vfe_syncdata = data;
 }
 
 void msm_camvfe_init(void)
 {
 	mutex_init(&vfe_lock);
-	vfe_inuse = 0;
 	vfe_syncdata = NULL;
 }

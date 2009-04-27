@@ -250,7 +250,6 @@ static int __msm_pmem_table_del(struct msm_pmem_info_t *pinfo,
 	struct hlist_node *node;
 	struct hlist_node *n;
 
-	mutex_lock(&msm->msm_sem);
 	switch (pinfo->type) {
 	case MSM_PMEM_OUTPUT1:
 	case MSM_PMEM_OUTPUT2:
@@ -289,7 +288,6 @@ static int __msm_pmem_table_del(struct msm_pmem_info_t *pinfo,
 		rc = -EINVAL;
 		break;
 	}
-	mutex_unlock(&msm->msm_sem);
 
 	return rc;
 }
@@ -326,8 +324,10 @@ static int __msm_get_frame(struct msm_frame_t *frame,
 
 	spin_unlock_irqrestore(&msm->sync.prev_frame_q_lock, flags);
 
-	if (!qcmd)
+	if (!qcmd) {
+		pr_err("%s: no preview frame.\n", __func__);
 		return -EAGAIN;
+	}
 
 	pphy = (struct msm_vfe_phy_info *)(qcmd->command);
 
@@ -1171,8 +1171,6 @@ static int __msm_register_pmem(struct msm_pmem_info_t *pinfo,
 {
 	int rc = 0;
 
-	mutex_lock(&msm->msm_sem);
-
 	switch (pinfo->type) {
 	case MSM_PMEM_OUTPUT1:
 	case MSM_PMEM_OUTPUT2:
@@ -1192,7 +1190,6 @@ static int __msm_register_pmem(struct msm_pmem_info_t *pinfo,
 		break;
 	}
 
-	mutex_unlock(&msm->msm_sem);
 	return rc;
 }
 
@@ -1549,6 +1546,7 @@ static long msm_ioctl_common(struct msm_device_t *pmsm,
 				unsigned int cmd,
 				void __user *argp)
 {
+	CDBG("msm_ioctl_common\n");
 	switch (cmd) {
 	case MSM_CAM_IOCTL_REGISTER_PMEM:
 		return msm_register_pmem(argp, pmsm);
@@ -1562,115 +1560,156 @@ static long msm_ioctl_common(struct msm_device_t *pmsm,
 static long msm_ioctl_config(struct file *filep, unsigned int cmd,
 	unsigned long arg)
 {
+	int rc = -EINVAL;
 	void __user *argp = (void __user *)arg;
 	struct msm_device_t *pmsm = filep->private_data;
 
 	CDBG("!!! msm_ioctl !!!, pmsm = %p, cmd = %d\n", pmsm, _IOC_NR(cmd));
+	mutex_lock(&pmsm->lock);
 
 	switch (cmd) {
 	case MSM_CAM_IOCTL_GET_SENSOR_INFO:
-		return msm_get_sensor_info(argp, pmsm);
+		rc = msm_get_sensor_info(argp, pmsm);
+		break;
 
 	case MSM_CAM_IOCTL_CONFIG_VFE:
 		/* Coming from config thread for update */
-		return msm_config_vfe(argp, pmsm);
+		rc = msm_config_vfe(argp, pmsm);
+		break;
 
 	case MSM_CAM_IOCTL_GET_STATS:
 		/* Coming from config thread wait
-		* for vfe statistics and control requests */
-		return msm_get_stats(argp, pmsm);
+		 * for vfe statistics and control requests */
+		rc = msm_get_stats(argp, pmsm);
+		break;
 
 	case MSM_CAM_IOCTL_ENABLE_VFE:
 		/* This request comes from control thread:
-		* enable either QCAMTASK or VFETASK */
-		return msm_enable_vfe(argp, pmsm);
+		 * enable either QCAMTASK or VFETASK */
+		rc = msm_enable_vfe(argp, pmsm);
+		break;
 
 	case MSM_CAM_IOCTL_DISABLE_VFE:
 		/* This request comes from control thread:
-		* disable either QCAMTASK or VFETASK */
-		return msm_disable_vfe(argp, pmsm);
+		 * disable either QCAMTASK or VFETASK */
+		rc = msm_disable_vfe(argp, pmsm);
+		break;
 
 	case MSM_CAM_IOCTL_CTRL_CMD_DONE:
 		/* Config thread notifies the result of contrl command */
-		return msm_ctrl_cmd_done(argp, pmsm);
+		rc = msm_ctrl_cmd_done(argp, pmsm);
+		break;
 
 	case MSM_CAM_IOCTL_VFE_APPS_RESET:
 		msm_camio_vfe_blk_reset();
-		return 0;
+		rc = 0;
+		break;
 
 	case MSM_CAM_IOCTL_RELEASE_STATS_BUFFER:
-		return msm_put_stats_buffer(argp, pmsm);
+		rc = msm_put_stats_buffer(argp, pmsm);
+		break;
 
 	case MSM_CAM_IOCTL_AXI_CONFIG:
-		return msm_axi_config(argp, pmsm);
+		rc = msm_axi_config(argp, pmsm);
+		break;
 
 	case MSM_CAM_IOCTL_SET_CROP:
-		return msm_set_crop(argp, pmsm);
+		rc = msm_set_crop(argp, pmsm);
+		break;
 
 	case MSM_CAM_IOCTL_PICT_PP: {
 		uint8_t enable;
 		if (copy_from_user(&enable, argp, sizeof(enable))) {
 			ERR_COPY_FROM_USER();
-			return -EFAULT;
+			rc = -EFAULT;
+		} else {
+			pmsm->pict_pp = enable;
+			rc = 0;
 		}
-
-		pmsm->pict_pp = enable;
-		return 0;
+		break;
 	}
 
 	case MSM_CAM_IOCTL_PICT_PP_DONE:
-		return msm_pict_pp_done(argp, pmsm);
+		rc = msm_pict_pp_done(argp, pmsm);
+		break;
 
 	case MSM_CAM_IOCTL_SENSOR_IO_CFG:
-		return pmsm->sctrl.s_config(argp);
+		rc = pmsm->sctrl.s_config(argp);
+		break;
 
 	case MSM_CAM_IOCTL_FLASH_LED_CFG: {
 		uint32_t led_state;
-		if (copy_from_user(&led_state, argp, sizeof(led_state)))
-			return -EFAULT;
-		return msm_camera_flash_set_led_state(led_state);
+		if (copy_from_user(&led_state, argp, sizeof(led_state))) {
+			ERR_COPY_FROM_USER();
+			rc = -EFAULT;
+		} else
+			rc = msm_camera_flash_set_led_state(led_state);
+		break;
 	}
 
 	default:
-		return msm_ioctl_common(pmsm, cmd, argp);
+		rc = msm_ioctl_common(pmsm, cmd, argp);
+		break;
 	}
+
+	mutex_unlock(&pmsm->lock);
+	CDBG("!!! msm_ioctl !!!, pmsm = %p, cmd = %d DONE\n",
+			pmsm, _IOC_NR(cmd));
+	return rc;
 }
 
 static long msm_ioctl_frame(struct file *filep, unsigned int cmd,
 	unsigned long arg)
 {
+	int rc = -EINVAL;
 	void __user *argp = (void __user *)arg;
 	struct msm_device_t *pmsm = filep->private_data;
+
+	mutex_lock(&pmsm->lock);
 
 	switch (cmd) {
 	case MSM_CAM_IOCTL_GETFRAME:
 		/* Coming from frame thread to get frame
-		* after SELECT is done */
-		return msm_get_frame(argp, pmsm);
+		 * after SELECT is done */
+		rc = msm_get_frame(argp, pmsm);
+		break;
 	case MSM_CAM_IOCTL_RELEASE_FRAME_BUFFER:
-		return msm_put_frame_buffer(argp, pmsm);
+		rc = msm_put_frame_buffer(argp, pmsm);
+		break;
 	default:
-		return -EINVAL;
+		break;
 	}
+
+	mutex_unlock(&pmsm->lock);
+	return rc;
 }
 
 
 static long msm_ioctl_control(struct file *filep, unsigned int cmd,
 	unsigned long arg)
 {
+	int rc = -EINVAL;
 	void __user *argp = (void __user *)arg;
 	struct msm_device_t *pmsm = filep->private_data;
+
+	mutex_lock(&pmsm->lock);
 
 	switch (cmd) {
 	case MSM_CAM_IOCTL_CTRL_COMMAND:
 		/* Coming from control thread, may need to wait for
 		* command status */
-		return msm_control(argp, pmsm);
+		rc = msm_control(argp, pmsm);
+		break;
 	case MSM_CAM_IOCTL_GET_PICTURE:
-		return msm_get_pic(argp, pmsm);
+		rc = msm_get_pic(argp, pmsm);
+		break;
 	default:
-		return msm_ioctl_common(pmsm, cmd, argp);
+		rc = msm_ioctl_common(pmsm, cmd, argp);
+		break;
 	}
+
+	mutex_unlock(&pmsm->lock);
+	return rc;
 }
 
 static int msm_frame_pending(struct msm_device_t *msm)
@@ -1725,9 +1764,7 @@ static int msm_release_common(struct msm_device_t *pmsm)
 		}
 	};
 
-	mutex_lock(&pmsm->msm_lock);
 	pmsm->opencnt--;
-	mutex_unlock(&pmsm->msm_lock);
 
 	if (!pmsm->opencnt) {
 		/* need to clean up
@@ -1827,35 +1864,25 @@ static int msm_release_common(struct msm_device_t *pmsm)
 	return 0;
 }
 
-#define DECLARE_MSM_RELEASE(type)                                     \
+#define DEFINE_MSM_RELEASE(type)                                      \
 static int msm_release_##type(struct inode *node, struct file *filep) \
 {                                                                     \
 	int rc = -EIO;                                                \
 	struct msm_device_t *pmsm = filep->private_data;              \
+	mutex_lock(&pmsm->lock);                                      \
 	if (pmsm->opened_##type) {                                    \
 		rc = msm_release_common(pmsm);                        \
 		pmsm->opened_##type = rc < 0;                         \
 	}                                                             \
 	else                                                          \
 		pr_err("msm_release_"#type" is already closed.\n");   \
+	mutex_unlock(&pmsm->lock);                                    \
 	return rc;                                                    \
 }
 
-DECLARE_MSM_RELEASE(control);
-DECLARE_MSM_RELEASE(config);
-DECLARE_MSM_RELEASE(frame);
-
-static ssize_t msm_read(struct file *filep, char __user *arg,
-	size_t size, loff_t *loff)
-{
-	return -EIO;
-}
-
-static ssize_t msm_write(struct file *filep, const char __user *arg,
-	size_t size, loff_t *loff)
-{
-	return -EIO;
-}
+DEFINE_MSM_RELEASE(control);
+DEFINE_MSM_RELEASE(config);
+DEFINE_MSM_RELEASE(frame);
 
 static unsigned int __msm_apps_poll(struct file *filep,
 	struct poll_table_struct *pll_table, struct msm_device_t *pmsm)
@@ -2001,26 +2028,18 @@ static int __msm_open(struct msm_device_t *msm)
 	struct msm_camera_sensor_info *sdata = msm->pdev->dev.platform_data;
 	struct msm_camera_device_platform_data *pdata = sdata->pdata;
 
-	rc = msm_camvfe_check(msm);
-	if (rc < 0) {
-		pr_err("__msm_open: msm_camvfe_check failed: %d\n", rc);
-		goto msm_open_done;
-	}
-
 	if (!pdata) {
 		pr_err("__msm_open: no pdata\n");
 		rc = -ENODEV;
 		goto msm_open_done;
 	}
 
-	mutex_lock(&msm->msm_lock);
 	msm->opencnt++;
 	if (msm->opencnt == 1)
 		wake_lock(&msm->wake_lock);
-	mutex_unlock(&msm->msm_lock);
 
 	if (msm->opencnt == 1) {
-		msm_camvfe_fn_init(&msm->vfefn);
+		msm_camvfe_fn_init(&msm->vfefn, msm);
 		if (msm->vfefn.vfe_init) {
 			rc = msm->vfefn.vfe_init(&msm_vfe_s,
 				msm->pdev);
@@ -2039,12 +2058,10 @@ static int __msm_open(struct msm_device_t *msm)
 			goto msm_open_done;
 		}
 
-		mutex_lock(&msm->msm_sem);
 		if (rc >= 0) {
 			INIT_HLIST_HEAD(&msm->sync.frame);
 			INIT_HLIST_HEAD(&msm->sync.stats);
 		}
-		mutex_unlock(&msm->msm_sem);
 	} else if (msm->opencnt > 1) {
 		rc = 0;
 	}
@@ -2080,12 +2097,15 @@ static int msm_open_##type(struct inode *inode, struct file *filep)           \
 	int rc;                                                               \
 	struct msm_device_t *pmsm =                                           \
 		container_of(inode->i_cdev, struct msm_device_t, cdev_##type);\
+	mutex_lock(&pmsm->lock);                                              \
 	if (pmsm->opened_##type) {                                            \
 		pr_err("msm_open_"#type": already opened\n");                 \
+		mutex_unlock(&pmsm->lock);                                    \
 		return -EBUSY;                                                \
 	}                                                                     \
 	rc = msm_open_common(inode, filep, pmsm);                             \
 	pmsm->opened_##type = rc >= 0;                                        \
+	mutex_unlock(&pmsm->lock);                                            \
 	return rc;                                                            \
 }
 
@@ -2098,8 +2118,6 @@ static const struct file_operations msm_fops_config = {
 	.open = msm_open_config,
 	.unlocked_ioctl = msm_ioctl_config,
 	.release = msm_release_config,
-	.read = msm_read,
-	.write = msm_write,
 	.poll = msm_poll,
 };
 
@@ -2108,8 +2126,6 @@ static const struct file_operations msm_fops_control = {
 	.open = msm_open_control,
 	.unlocked_ioctl = msm_ioctl_control,
 	.release = msm_release_control,
-	.read = msm_read,
-	.write = msm_write,
 	.poll = msm_poll,
 };
 
@@ -2118,8 +2134,6 @@ static const struct file_operations msm_fops_frame = {
 	.open = msm_open_frame,
 	.unlocked_ioctl = msm_ioctl_frame,
 	.release = msm_release_frame,
-	.read = msm_read,
-	.write = msm_write,
 	.poll = msm_poll,
 };
 
@@ -2283,7 +2297,7 @@ int msm_register(struct msm_driver *drv, const char *id)
 {
 	int rc = -ENODEV;
 
-	mutex_lock(&drv->vmsm->msm_sem);
+	mutex_lock(&drv->vmsm->lock);
 	if (list_empty(&msm_sensors))
 		goto done;
 
@@ -2304,7 +2318,7 @@ int msm_register(struct msm_driver *drv, const char *id)
 	}
 
 done:
-	mutex_unlock(&drv->vmsm->msm_sem);
+	mutex_unlock(&drv->vmsm->lock);
 	return rc;
 }
 EXPORT_SYMBOL(msm_register);
@@ -2313,13 +2327,13 @@ int msm_unregister(struct msm_driver *drv, const char *id)
 {
 	int rc = -EFAULT;
 
-	mutex_lock(&drv->vmsm->msm_sem);
+	mutex_lock(&drv->vmsm->lock);
 	if (!strcmp(drv->vmsm->apps_id, id)) {
 		drv->vmsm->apps_id = NULL;
 		drv->vmsm = NULL;
 		rc = 0;
 	}
-	mutex_unlock(&drv->vmsm->msm_sem);
+	mutex_unlock(&drv->vmsm->lock);
 
 	return rc;
 }
@@ -2374,8 +2388,7 @@ int msm_camera_drv_start(struct platform_device *dev,
 
 	wake_lock_init(&pmsm->wake_lock, WAKE_LOCK_IDLE, "msm_camera");
 
-	mutex_init(&pmsm->msm_lock);
-	mutex_init(&pmsm->msm_sem);
+	mutex_init(&pmsm->lock);
 
 	if (camera_node < MSM_MAX_CAMERA_SENSORS) {
 		CDBG("setting camera node %d\n", camera_node);

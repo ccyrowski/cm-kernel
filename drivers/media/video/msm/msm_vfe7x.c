@@ -34,7 +34,6 @@ static void *extdata;
 static uint32_t extlen;
 
 struct mutex vfe_lock;
-static uint32_t vfe_inuse;
 static void     *vfe_syncdata;
 static uint8_t vfestopped;
 
@@ -218,7 +217,6 @@ static int vfe_7x_stop(void)
 static void vfe_7x_release(struct platform_device *dev)
 {
 	mutex_lock(&vfe_lock);
-	vfe_inuse = 0;
 	vfe_syncdata = NULL;
 	mutex_unlock(&vfe_lock);
 
@@ -698,34 +696,17 @@ config_failure:
 	return rc;
 }
 
-void msm_camvfe_fn_init(struct msm_camvfe_fn_t *fptr)
+void msm_camvfe_fn_init(struct msm_camvfe_fn_t *fptr, void *data)
 {
 	fptr->vfe_init    = vfe_7x_init;
 	fptr->vfe_enable  = vfe_7x_enable;
 	fptr->vfe_config  = vfe_7x_config;
 	fptr->vfe_disable = vfe_7x_disable;
 	fptr->vfe_release = vfe_7x_release;
-}
-
-int msm_camvfe_check(void *data)
-{
-	int rc = 0;
-
-	mutex_lock(&vfe_lock);
-	if (!vfe_inuse) {
-		vfe_inuse = 1;
-		vfe_syncdata = data;
-	} else if (data != vfe_syncdata) {
-		rc = -EBUSY;
-	}
-	mutex_unlock(&vfe_lock);
-
-	return rc;
+	vfe_syncdata = data;
 }
 
 void msm_camvfe_init(void)
 {
 	mutex_init(&vfe_lock);
-	vfe_inuse = 0;
-	vfe_syncdata = NULL;
 }
