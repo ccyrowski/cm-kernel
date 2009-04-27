@@ -310,7 +310,7 @@ static int __msm_get_frame(struct msm_frame_t *frame,
 	int rc = 0;
 
 	struct msm_queue_cmd_t *qcmd = NULL;
-	struct msm_vfe_phy_info *pphy;
+	struct msm_vfe_phy_info_t *pphy;
 
 	spin_lock_irqsave(&msm->sync.prev_frame_q_lock, flags);
 
@@ -327,7 +327,7 @@ static int __msm_get_frame(struct msm_frame_t *frame,
 		return -EAGAIN;
 	}
 
-	pphy = (struct msm_vfe_phy_info *)(qcmd->command);
+	pphy = (struct msm_vfe_phy_info_t *)(qcmd->command);
 
 	frame->buffer =
 		msm_pmem_frame_ptov_lookup(pphy->y_phy,
@@ -1749,7 +1749,6 @@ static int msm_release_common(struct msm_device_t *pmsm)
 			qcmd = list_first_entry(&pmsm->sync.prev_frame_q,
 				struct msm_queue_cmd_t, list);
 			list_del(&qcmd->list);
-			kfree(qcmd->command);
 			kfree(qcmd);
 		};
 		spin_unlock_irqrestore(&pmsm->sync.prev_frame_q_lock, flags);
@@ -1800,12 +1799,14 @@ static unsigned int msm_poll(struct file *filep,
 	return __msm_apps_poll(filep, pll_table, filep->private_data);
 }
 
+/* This function executes in interrupt context. */
+
 static void msm_vfe_sync(struct msm_vfe_resp_t *vdata,
 		enum msm_queut_t qtype, void *syncdata)
 {
 	struct msm_queue_cmd_t *qcmd = NULL;
 	struct msm_queue_cmd_t *qcmd_frame = NULL;
-	struct msm_vfe_phy_info *fphy;
+	struct msm_vfe_phy_info_t *fphy;
 
 	unsigned long flags;
 	struct msm_device_t *msm =
@@ -1814,44 +1815,38 @@ static void msm_vfe_sync(struct msm_vfe_resp_t *vdata,
 	if (!msm)
 		return;
 
-	qcmd = kmalloc(sizeof(struct msm_queue_cmd_t),
-					GFP_ATOMIC);
+	qcmd = kmalloc(sizeof(struct msm_queue_cmd_t), GFP_ATOMIC);
 	if (!qcmd) {
 		pr_err("evt_msg: cannot allocate buffer\n");
 		goto mem_fail1;
 	}
 
 	if (qtype == MSM_CAM_Q_VFE_EVT) {
-		qcmd->type    = MSM_CAM_Q_VFE_EVT;
+		qcmd->type = MSM_CAM_Q_VFE_EVT;
 	} else if (qtype == MSM_CAM_Q_VFE_MSG) {
 
 		if (vdata->type == VFE_MSG_OUTPUT1 ||
 				vdata->type == VFE_MSG_OUTPUT2) {
 
 			qcmd_frame =
-				kmalloc(sizeof(struct msm_queue_cmd_t),
+				kmalloc(sizeof(struct msm_queue_cmd_t) +
+					sizeof(struct msm_vfe_phy_info_t),
 					GFP_ATOMIC);
 			if (!qcmd_frame)
 				goto mem_fail2;
-			fphy = kmalloc(sizeof(struct msm_vfe_phy_info),
-				GFP_ATOMIC);
-			if (!fphy)
-				goto mem_fail3;
-
+			fphy = (struct msm_vfe_phy_info_t *)(qcmd_frame + 1);
 			*fphy = vdata->phy;
 
 			qcmd_frame->type    = MSM_CAM_Q_VFE_MSG;
 			qcmd_frame->command = fphy;
 
 			CDBG("qcmd_frame= 0x%x phy_y= 0x%x, phy_cbcr= 0x%x\n",
-			(int) qcmd_frame, fphy->y_phy, fphy->cbcr_phy);
+				(int) qcmd_frame, fphy->y_phy, fphy->cbcr_phy);
 
 			spin_lock_irqsave(&msm->sync.prev_frame_q_lock,
 				flags);
-
 			list_add_tail(&qcmd_frame->list,
 				&msm->sync.prev_frame_q);
-
 			spin_unlock_irqrestore(&msm->sync.prev_frame_q_lock,
 				flags);
 
@@ -1891,18 +1886,13 @@ static void msm_vfe_sync(struct msm_vfe_resp_t *vdata,
 	qcmd->command = (void *)vdata;
 	CDBG("vdata->type = %d\n", vdata->type);
 
-	spin_lock_irqsave(&msm->sync.msg_event_queue_lock,
-		flags);
+	spin_lock_irqsave(&msm->sync.msg_event_queue_lock, flags);
 	list_add_tail(&qcmd->list, &msm->sync.msg_event_queue);
-	spin_unlock_irqrestore(&msm->sync.msg_event_queue_lock,
-		flags);
+	spin_unlock_irqrestore(&msm->sync.msg_event_queue_lock, flags);
 	wake_up(&msm->sync.msg_event_wait);
 	CDBG("woke up config thread\n");
 
 	return;
-
-mem_fail3:
-	kfree(qcmd_frame);
 
 mem_fail2:
 	kfree(qcmd);
@@ -2304,7 +2294,6 @@ int msm_camera_drv_start(struct platform_device *dev,
 	if (rc < 0)
 		goto sensor_probe_fail;
 
-	msm_camvfe_init();
 	CDBG("DONE: %s %s:%d\n", __FILE__, __func__, __LINE__);
 	list_add(&pmsm->list, &msm_sensors);
 	return rc;

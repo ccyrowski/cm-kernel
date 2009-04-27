@@ -50,7 +50,7 @@ enum vfe_resp_msg_t {
 	VFE_MSG_INVALID
 };
 
-struct msm_vfe_phy_info {
+struct msm_vfe_phy_info_t {
 	uint32_t sbuf_phy;
 	uint32_t y_phy;
 	uint32_t cbcr_phy;
@@ -59,7 +59,7 @@ struct msm_vfe_phy_info {
 struct msm_vfe_resp_t {
 	enum vfe_resp_msg_t type;
 	struct msm_vfe_evt_msg_t evt_msg;
-	struct msm_vfe_phy_info  phy;
+	struct msm_vfe_phy_info_t phy;
 	void    *extdata;
 	int32_t extlen;
 };

@@ -677,7 +677,7 @@ vfe_irq_composite_pack(struct vfe_irq_composite_mask_config data)
 	return *((uint32_t *)&packedData);
 }
 
-static void vfe_addr_convert(struct msm_vfe_phy_info *pinfo,
+static void vfe_addr_convert(struct msm_vfe_phy_info_t *pinfo,
 	enum vfe_resp_msg_t	type, void *data, void **ext, int32_t *elen)
 {
 	switch (type) {

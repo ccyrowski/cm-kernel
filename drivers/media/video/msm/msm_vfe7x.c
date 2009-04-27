@@ -39,7 +39,7 @@ static uint8_t vfestopped;
 
 static struct stop_event stopevent;
 
-static void vfe_7x_convert(struct msm_vfe_phy_info *pinfo,
+static void vfe_7x_convert(struct msm_vfe_phy_info_t *pinfo,
 	enum vfe_resp_msg_t	type, void *data, void **ext, int32_t *elen)
 {
 	switch (type) {
@@ -698,15 +698,11 @@ config_failure:
 
 void msm_camvfe_fn_init(struct msm_camvfe_fn_t *fptr, void *data)
 {
+	mutex_init(&vfe_lock);
 	fptr->vfe_init    = vfe_7x_init;
 	fptr->vfe_enable  = vfe_7x_enable;
 	fptr->vfe_config  = vfe_7x_config;
 	fptr->vfe_disable = vfe_7x_disable;
 	fptr->vfe_release = vfe_7x_release;
 	vfe_syncdata = data;
-}
-
-void msm_camvfe_init(void)
-{
-	mutex_init(&vfe_lock);
 }

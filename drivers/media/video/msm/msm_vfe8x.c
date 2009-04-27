@@ -746,16 +746,11 @@ static int vfe_init(struct msm_vfe_resp *presp,
 
 void msm_camvfe_fn_init(struct msm_camvfe_fn_t *fptr, void *data)
 {
+	mutex_init(&vfe_lock);
 	fptr->vfe_init    = vfe_init;
 	fptr->vfe_enable  = vfe_enable;
 	fptr->vfe_config  = vfe_config;
 	fptr->vfe_disable = vfe_disable;
 	fptr->vfe_release = vfe_release;
 	vfe_syncdata = data;
-}
-
-void msm_camvfe_init(void)
-{
-	mutex_init(&vfe_lock);
-	vfe_syncdata = NULL;
 }
