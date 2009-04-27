@@ -136,13 +136,13 @@ static uint8_t msm_pmem_region_lookup(struct hlist_head *ptype,
 {
 	struct msm_pmem_region *region;
 	struct msm_pmem_region *regptr;
-	struct hlist_node *node;
+	struct hlist_node *node, *n;
 
 	uint8_t rc = 0;
 
 	regptr = reg;
 
-	hlist_for_each_entry(region, node, ptype, list) {
+	hlist_for_each_entry_safe(region, node, n, ptype, list) {
 		if (region->type == type && region->active) {
 			*regptr = *region;
 			rc += 1;
@@ -160,10 +160,10 @@ static unsigned long msm_pmem_frame_ptov_lookup(unsigned long pyaddr,
 	struct msm_device_t *msm)
 {
 	struct msm_pmem_region *region;
-	struct hlist_node *node;
+	struct hlist_node *node, *n;
 	unsigned long rc = 0;
 
-	hlist_for_each_entry(region, node, &msm->sync.frame, list) {
+	hlist_for_each_entry_safe(region, node, n, &msm->sync.frame, list) {
 		if (pyaddr == (region->paddr + region->y_off) &&
 				pcbcraddr == (region->paddr +
 					      region->cbcr_off) &&
@@ -187,9 +187,9 @@ static unsigned long msm_pmem_stats_ptov_lookup(unsigned long addr, int *fd,
 	struct msm_device_t *msm)
 {
 	struct msm_pmem_region *region;
-	struct hlist_node *node;
+	struct hlist_node *node, *n;
 
-	hlist_for_each_entry(region, node, &msm->sync.stats, list) {
+	hlist_for_each_entry_safe(region, node, n, &msm->sync.stats, list) {
 		if (addr == region->paddr && region->active) {
 			/* offset since we could pass vaddr inside a
 			 * registered pmem buffer */
@@ -206,11 +206,10 @@ static unsigned long msm_pmem_frame_vtop_lookup(unsigned long buffer,
 	uint32_t yoff, uint32_t cbcroff, int fd, struct msm_device_t *msm)
 {
 	struct msm_pmem_region *region;
-	struct hlist_node *node;
+	struct hlist_node *node, *n;
 
-	hlist_for_each_entry(region,
-		node, &msm->sync.frame, list) {
-
+	hlist_for_each_entry_safe(region,
+		node, n, &msm->sync.frame, list) {
 		if (((unsigned long)(region->vaddr) == buffer) &&
 				(region->y_off == yoff) &&
 				(region->cbcr_off == cbcroff) &&
@@ -229,9 +228,9 @@ static unsigned long msm_pmem_stats_vtop_lookup(unsigned long buffer,
 	int fd, struct msm_device_t *msm)
 {
 	struct msm_pmem_region *region;
-	struct hlist_node *node;
+	struct hlist_node *node, *n;
 
-	hlist_for_each_entry(region, node, &msm->sync.stats, list) {
+	hlist_for_each_entry_safe(region, node, n, &msm->sync.stats, list) {
 		if (((unsigned long)(region->vaddr) == buffer) &&
 				(region->fd == fd) && region->active == 0) {
 			region->active = 1;
@@ -247,8 +246,7 @@ static int __msm_pmem_table_del(struct msm_pmem_info_t *pinfo,
 {
 	int rc = 0;
 	struct msm_pmem_region *region;
-	struct hlist_node *node;
-	struct hlist_node *n;
+	struct hlist_node *node, *n;
 
 	switch (pinfo->type) {
 	case MSM_PMEM_OUTPUT1:
@@ -436,23 +434,6 @@ static int msm_disable_vfe(void __user *arg,
 	return rc;
 }
 
-static int msm_ctrl_stats_pending(struct msm_device_t *msm)
-{
-	unsigned long flags;
-	int yes = 0;
-
-	spin_lock_irqsave(&msm->sync.ctrl_status_lock,
-		flags);
-
-	yes = !list_empty(&msm->sync.ctrl_status_queue);
-
-	spin_unlock_irqrestore(&msm->sync.ctrl_status_lock,
-		flags);
-
-	CDBG("msm_ctrl_stats_pending, yes = %d\n", yes);
-	return yes;
-}
-
 static int msm_control(void __user *arg,
 	struct msm_device_t *msm)
 {
@@ -516,7 +497,8 @@ static int msm_control(void __user *arg,
 	CDBG("msm_control, timeout = %d\n", timeout);
 	if (timeout > 0) {
 		rc = wait_event_timeout(msm->sync.ctrl_status_wait,
-					msm_ctrl_stats_pending(msm),
+					!list_empty_careful(
+						&msm->sync.ctrl_status_queue),
 					msecs_to_jiffies(timeout));
 
 		CDBG("msm_control: rc = %d\n", rc);
@@ -528,7 +510,7 @@ static int msm_control(void __user *arg,
 		}
 	} else
 		rc = wait_event_interruptible(msm->sync.ctrl_status_wait,
-			msm_ctrl_stats_pending(msm));
+			!list_empty_careful(&msm->sync.ctrl_status_queue));
 
 	if (rc < 0) {
 		pr_err("msm_control: wait_event error %d\n", rc);
@@ -605,32 +587,20 @@ end:
 
 static int msm_stats_pending(struct msm_device_t *msm)
 {
-	unsigned long flags;
 	int yes = 0;
 
 	struct msm_queue_cmd_t *qcmd = NULL;
 
-	spin_lock_irqsave(&msm->sync.msg_event_queue_lock,
-		flags);
-
 	if (!list_empty(&msm->sync.msg_event_queue)) {
-
 		qcmd = list_first_entry(&msm->sync.msg_event_queue,
 			struct msm_queue_cmd_t, list);
-
-		if (qcmd) {
-
-			if ((qcmd->type  == MSM_CAM_Q_CTRL)    ||
-					(qcmd->type  == MSM_CAM_Q_VFE_EVT) ||
-					(qcmd->type  == MSM_CAM_Q_VFE_MSG) ||
-					(qcmd->type  == MSM_CAM_Q_V4L2_REQ)) {
-				yes = 1;
-			}
-		}
+		yes = (qcmd->type == MSM_CAM_Q_CTRL) ||
+			(qcmd->type  == MSM_CAM_Q_VFE_EVT) ||
+			(qcmd->type  == MSM_CAM_Q_VFE_MSG) ||
+			(qcmd->type  == MSM_CAM_Q_V4L2_REQ);
 	}
-	spin_unlock_irqrestore(&msm->sync.msg_event_queue_lock, flags);
 
-	CDBG("msm_stats_pending, yes = %d\n", yes);
+	CDBG("msm_stats_pending: %d\n", yes);
 	return yes;
 }
 
@@ -681,13 +651,6 @@ static int msm_get_stats(void __user *arg,
 	if (!list_empty(&msm->sync.msg_event_queue)) {
 		qcmd = list_first_entry(&msm->sync.msg_event_queue,
 				struct msm_queue_cmd_t, list);
-
-		if (!qcmd) {
-			spin_unlock_irqrestore(
-				&msm->sync.msg_event_queue_lock, flags);
-			return -EAGAIN;
-		}
-
 		list_del(&qcmd->list);
 	}
 	spin_unlock_irqrestore(&msm->sync.msg_event_queue_lock, flags);
@@ -1334,28 +1297,15 @@ static int msm_axi_config(void __user *arg,
 
 static int msm_camera_pict_pending(struct msm_device_t *msm)
 {
-	unsigned long flags;
 	int yes = 0;
-
-	struct msm_queue_cmd_t *qcmd = NULL;
-
-	spin_lock_irqsave(&msm->sync.pict_frame_q_lock,
-		flags);
-
-	if (!list_empty(&msm->sync.pict_frame_q)) {
-
-		qcmd =
+	if (!list_empty_careful(&msm->sync.pict_frame_q)) {
+		struct msm_queue_cmd_t *qcmd =
 			list_first_entry(&msm->sync.pict_frame_q,
 				struct msm_queue_cmd_t, list);
-
-		if (qcmd) {
-			if (qcmd->type  == MSM_CAM_Q_VFE_MSG)
-				yes = 1;
-		}
+		yes = (qcmd->type == MSM_CAM_Q_VFE_MSG);
 	}
-	spin_unlock_irqrestore(&msm->sync.pict_frame_q_lock, flags);
 
-	CDBG("msm_camera_pict_pending, yes = %d\n", yes);
+	CDBG("msm_camera_pict_pending: %d\n", yes);
 	return yes;
 }
 
@@ -1712,35 +1662,6 @@ static long msm_ioctl_control(struct file *filep, unsigned int cmd,
 	return rc;
 }
 
-static int msm_frame_pending(struct msm_device_t *msm)
-{
-	unsigned long flags;
-	int yes = 0;
-
-	struct msm_queue_cmd_t *qcmd = NULL;
-
-	spin_lock_irqsave(&msm->sync.prev_frame_q_lock, flags);
-
-	if (!list_empty(&msm->sync.prev_frame_q)) {
-
-		qcmd = list_first_entry(&msm->sync.prev_frame_q,
-			struct msm_queue_cmd_t, list);
-
-		if (!qcmd)
-			yes = 0;
-		else {
-			yes = 1;
-			CDBG("msm_frame_pending: yes = %d\n",
-				yes);
-		}
-	}
-
-	spin_unlock_irqrestore(&msm->sync.prev_frame_q_lock, flags);
-
-	CDBG("msm_frame_pending, yes = %d\n", yes);
-	return yes;
-}
-
 static int msm_release_common(struct msm_device_t *pmsm)
 {
 	struct msm_pmem_region *region;
@@ -1749,20 +1670,16 @@ static int msm_release_common(struct msm_device_t *pmsm)
 	struct msm_queue_cmd_t *qcmd = NULL;
 	unsigned long flags;
 
+	spin_lock_irqsave(&pmsm->sync.pict_frame_q_lock, flags);
 	while (msm_camera_pict_pending(pmsm)) {
-		spin_lock_irqsave(&pmsm->sync.pict_frame_q_lock,
-			flags);
+		/* The list is guaranteed not to be empty. */
 		qcmd = list_first_entry(&pmsm->sync.pict_frame_q,
 			struct msm_queue_cmd_t, list);
-		spin_unlock_irqrestore(&pmsm->sync.pict_frame_q_lock,
-			flags);
-
-		if (qcmd) {
-			list_del(&qcmd->list);
-			kfree(qcmd->command);
-			kfree(qcmd);
-		}
+		list_del(&qcmd->list);
+		kfree(qcmd->command);
+		kfree(qcmd);
 	};
+	spin_unlock_irqrestore(&pmsm->sync.pict_frame_q_lock, flags);
 
 	pmsm->opencnt--;
 
@@ -1793,68 +1710,49 @@ static int msm_release_common(struct msm_device_t *pmsm)
 			kfree(region);
 		}
 
-		while (msm_ctrl_stats_pending(pmsm)) {
-			spin_lock_irqsave(&pmsm->sync.ctrl_status_lock,
-				flags);
+		spin_lock_irqsave(&pmsm->sync.ctrl_status_lock, flags);
+		while (!list_empty(&pmsm->sync.ctrl_status_queue)) {
+			/* List is guaranteed not to be empty */
 			qcmd = list_first_entry(&pmsm->sync.ctrl_status_queue,
 				struct msm_queue_cmd_t, list);
-			spin_unlock_irqrestore(&pmsm->sync.ctrl_status_lock,
-				flags);
-
-			if (qcmd) {
-				list_del(&qcmd->list);
-				if (qcmd->type == MSM_CAM_Q_VFE_MSG)
-					kfree(((struct msm_vfe_resp_t *)
-						(qcmd->command))->evt_msg.data);
-				kfree(qcmd->command);
-				kfree(qcmd);
-			}
+			list_del(&qcmd->list);
+			if (qcmd->type == MSM_CAM_Q_VFE_MSG)
+				kfree(((struct msm_vfe_resp_t *)
+					(qcmd->command))->evt_msg.data);
+			kfree(qcmd->command);
+			kfree(qcmd);
 		};
+		spin_unlock_irqrestore(&pmsm->sync.ctrl_status_lock, flags);
 
+		spin_lock_irqsave(&pmsm->sync.msg_event_queue_lock, flags);
 		while (msm_stats_pending(pmsm)) {
-			spin_lock_irqsave(&pmsm->sync.msg_event_queue_lock,
-				flags);
 			qcmd = list_first_entry(&pmsm->sync.msg_event_queue,
 				struct msm_queue_cmd_t, list);
-			spin_unlock_irqrestore(&pmsm->sync.msg_event_queue_lock,
-				flags);
-
-			if (qcmd) {
-				list_del(&qcmd->list);
-				kfree(qcmd->command);
-				kfree(qcmd);
-			}
+			list_del(&qcmd->list);
+			kfree(qcmd->command);
+			kfree(qcmd);
 		};
+		spin_unlock_irqrestore(&pmsm->sync.msg_event_queue_lock, flags);
 
+		spin_lock_irqsave(&pmsm->sync.pict_frame_q_lock, flags);
 		while (msm_camera_pict_pending(pmsm)) {
-			spin_lock_irqsave(&pmsm->sync.pict_frame_q_lock,
-				flags);
 			qcmd = list_first_entry(&pmsm->sync.pict_frame_q,
 				struct msm_queue_cmd_t, list);
-			spin_unlock_irqrestore(&pmsm->sync.pict_frame_q_lock,
-				flags);
-
-			if (qcmd) {
-				list_del(&qcmd->list);
-				kfree(qcmd->command);
-				kfree(qcmd);
-			}
+			list_del(&qcmd->list);
+			kfree(qcmd->command);
+			kfree(qcmd);
 		};
+		spin_unlock_irqrestore(&pmsm->sync.pict_frame_q_lock, flags);
 
-		while (msm_frame_pending(pmsm)) {
-			spin_lock_irqsave(&pmsm->sync.prev_frame_q_lock,
-				flags);
+		spin_lock_irqsave(&pmsm->sync.prev_frame_q_lock, flags);
+		while (!list_empty(&pmsm->sync.prev_frame_q)) {
 			qcmd = list_first_entry(&pmsm->sync.prev_frame_q,
 				struct msm_queue_cmd_t, list);
-			spin_unlock_irqrestore(&pmsm->sync.prev_frame_q_lock,
-				flags);
-
-			if (qcmd) {
-				list_del(&qcmd->list);
-				kfree(qcmd->command);
-				kfree(qcmd);
-			}
+			list_del(&qcmd->list);
+			kfree(qcmd->command);
+			kfree(qcmd);
 		};
+		spin_unlock_irqrestore(&pmsm->sync.prev_frame_q_lock, flags);
 
 		pmsm->sctrl.s_release();
 		wake_unlock(&pmsm->wake_lock);
@@ -1889,7 +1787,7 @@ static unsigned int __msm_apps_poll(struct file *filep,
 {
 	poll_wait(filep, &pmsm->sync.prev_frame_wait, pll_table);
 
-	if (msm_frame_pending(pmsm))
+	if (!list_empty_careful(&pmsm->sync.prev_frame_q))
 		/* frame ready */
 		return POLLIN | POLLRDNORM;
 
@@ -1903,7 +1801,7 @@ static unsigned int msm_poll(struct file *filep,
 }
 
 static void msm_vfe_sync(struct msm_vfe_resp_t *vdata,
-	 enum msm_queut_t qtype, void *syncdata)
+		enum msm_queut_t qtype, void *syncdata)
 {
 	struct msm_queue_cmd_t *qcmd = NULL;
 	struct msm_queue_cmd_t *qcmd_frame = NULL;
@@ -2233,10 +2131,9 @@ static int __msm_control(struct msm_ctrl_cmd_t *ctrlcmd,
 	timeout = ctrlcmd->timeout_ms;
 	CDBG("msm_control, timeout = %d\n", timeout);
 	if (timeout > 0) {
-		rc =
-			wait_event_timeout(
+		rc = wait_event_timeout(
 				vmsm->sync.ctrl_status_wait,
-				msm_ctrl_stats_pending(vmsm),
+				!list_empty(&vmsm->sync.ctrl_status_queue),
 				msecs_to_jiffies(timeout));
 
 		CDBG("msm_control: rc = %d\n", rc);
@@ -2249,7 +2146,7 @@ static int __msm_control(struct msm_ctrl_cmd_t *ctrlcmd,
 	} else
 		rc = wait_event_interruptible(
 			vmsm->sync.ctrl_status_wait,
-			msm_ctrl_stats_pending(vmsm));
+			!list_empty(&vmsm->sync.ctrl_status_queue));
 
 	if (rc < 0) {
 		pr_err("msm_control: wait_event error %d\n", rc);
@@ -2263,14 +2160,6 @@ static int __msm_control(struct msm_ctrl_cmd_t *ctrlcmd,
 			&vmsm->sync.ctrl_status_queue,
 			struct msm_queue_cmd_t,
 			list);
-
-		if (!rcmd) {
-			spin_unlock_irqrestore(&vmsm->sync.ctrl_status_lock,
-				flags);
-			rc = -EAGAIN;
-			goto end;
-		}
-
 		list_del(&(rcmd->list));
 	}
 	spin_unlock_irqrestore(&vmsm->sync.ctrl_status_lock, flags);
