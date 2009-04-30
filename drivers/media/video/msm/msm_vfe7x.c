@@ -40,7 +40,8 @@ static uint8_t vfestopped;
 static struct stop_event stopevent;
 
 static void vfe_7x_convert(struct msm_vfe_phy_info_t *pinfo,
-	enum vfe_resp_msg_t	type, void *data, void **ext, int32_t *elen)
+		enum vfe_resp_msg_t type,
+		void *data, void **ext, int32_t *elen)
 {
 	switch (type) {
 	case VFE_MSG_OUTPUT1:
@@ -84,37 +85,30 @@ static void vfe_7x_ops(void *driver_data, unsigned id, size_t len,
 {
 	uint32_t evt_buf[3];
 	struct msm_vfe_resp_t *rp;
+	void *data;
 
-	rp = kmalloc(sizeof(struct msm_vfe_resp_t), GFP_ATOMIC);
-	if (!rp) {
+	len = (id == (uint16_t)-1) ? 0 : len;
+	data = resp->vfe_alloc(sizeof(struct msm_vfe_resp_t) + len, vfe_syncdata);
+
+	if (!data) {
 		pr_err("rp: cannot allocate buffer\n");
 		return;
 	}
+	rp = (struct msm_vfe_resp_t *)data;
+	rp->evt_msg.len = len;
 
 	if (id == ((uint16_t)-1)) {
 		/* event */
-		getevent(evt_buf, sizeof(evt_buf));
-
 		rp->type           = VFE_EVENT;
 		rp->evt_msg.type   = MSM_CAMERA_EVT;
-		rp->evt_msg.len    = 0;
+		getevent(evt_buf, sizeof(evt_buf));
 		rp->evt_msg.msg_id = evt_buf[0];
-
 		resp->vfe_resp(rp, MSM_CAM_Q_VFE_EVT, vfe_syncdata);
 	} else {
 		/* messages */
-
 		rp->evt_msg.type   = MSM_CAMERA_MSG;
 		rp->evt_msg.msg_id = id;
-		rp->evt_msg.len    = len;
-
-		rp->evt_msg.data = kmalloc(rp->evt_msg.len, GFP_ATOMIC);
-		if (!(rp->evt_msg.data)) {
-			kfree(rp);
-			pr_err("rp->evt_msg.data: cannot allocate buffer\n");
-			return;
-		}
-
+		rp->evt_msg.data = rp + 1;
 		getevent(rp->evt_msg.data, len);
 
 		switch (rp->evt_msg.msg_id) {
@@ -161,7 +155,6 @@ static void vfe_7x_ops(void *driver_data, unsigned id, size_t len,
 			rp->type = VFE_MSG_GENERAL;
 			break;
 		}
-
 		resp->vfe_resp(rp, MSM_CAM_Q_VFE_MSG, vfe_syncdata);
 	}
 }
@@ -183,7 +176,7 @@ static int vfe_7x_enable(struct camera_enable_cmd_t *enable)
 }
 
 static int vfe_7x_disable(struct camera_enable_cmd_t *enable,
-	struct platform_device *dev)
+		struct platform_device *dev __attribute__((unused)))
 {
 	int rc = -EFAULT;
 
@@ -214,7 +207,7 @@ static int vfe_7x_stop(void)
 	return rc;
 }
 
-static void vfe_7x_release(struct platform_device *dev)
+static void vfe_7x_release(struct platform_device *pdev)
 {
 	mutex_lock(&vfe_lock);
 	vfe_syncdata = NULL;
@@ -232,7 +225,7 @@ static void vfe_7x_release(struct platform_device *dev)
 	msm_adsp_put(qcam_mod);
 	msm_adsp_put(vfe_mod);
 
-	msm_camio_disable(dev);
+	msm_camio_disable(pdev);
 
 	kfree(extdata);
 	extlen = 0;
@@ -291,7 +284,7 @@ init_fail:
 	return rc;
 }
 
-static int vfe_7x_config_axi(enum vfeoutput_mode_t mode,
+static int vfe_7x_config_axi(int mode,
 	struct axidata_t *ad, struct axiout_t *ao)
 {
 	struct msm_pmem_region *regptr;

@@ -43,7 +43,7 @@ struct vfe_stats_ack_t {
 /* AXI Output Config Command sent to DSP */
 struct axiout_t {
 	uint32_t            cmdheader:32;
-	enum vfeoutput_mode_t outputmode:3;
+	int 		    outputmode:3;
 	uint8_t             format:2;
 	uint32_t            /* reserved */ : 27;
 

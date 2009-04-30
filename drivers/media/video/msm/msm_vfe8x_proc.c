@@ -762,7 +762,7 @@ vfe_proc_ops(enum VFE_MESSAGE_ID id, void *msg, size_t len)
 		return;
 	}
 
-	rp = kmalloc(sizeof(struct msm_vfe_resp_t), GFP_ATOMIC);
+	rp = ctrl->resp->vfe_alloc(sizeof(struct msm_vfe_resp_t), ctrl->syncdata);
 	if (!rp) {
 		CDBG("rp: cannot allocate buffer\n");
 		return;
@@ -3581,7 +3581,7 @@ void vfe_axi_output_config(
 		 * leave the pong buffer to NULL, there will be axi_error.
 		 * Note that ideally we should deal with this at upper layer,
 		 * which is in msm_vfe8x.c */
-		if (in->output2.outputCbcr.outFragments[1][0] == NULL) {
+		if (!in->output2.outputCbcr.outFragments[1][0]) {
 			in->output2.outputCbcr.outFragments[1][0] =
 				in->output2.outputCbcr.outFragments[0][0];
 		}

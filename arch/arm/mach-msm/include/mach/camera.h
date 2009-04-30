@@ -28,14 +28,11 @@
 #define NUM_AUTOFOCUS_MULTI_WINDOW_GRIDS 16
 #define NUM_AF_STAT_OUTPUT_BUFFERS      3
 
-enum msm_queut_t {
-	MSM_CAM_Q_IVALID,
+enum msm_queue_t {
 	MSM_CAM_Q_CTRL,
 	MSM_CAM_Q_VFE_EVT,
 	MSM_CAM_Q_VFE_MSG,
 	MSM_CAM_Q_V4L2_REQ,
-
-	MSM_CAM_Q_MAX
 };
 
 enum vfe_resp_msg_t {
@@ -46,8 +43,6 @@ enum vfe_resp_msg_t {
 	VFE_MSG_OUTPUT2,
 	VFE_MSG_STATS_AF,
 	VFE_MSG_STATS_WE,
-
-	VFE_MSG_INVALID
 };
 
 struct msm_vfe_phy_info_t {
@@ -66,16 +61,17 @@ struct msm_vfe_resp_t {
 
 struct msm_vfe_resp {
 	void (*vfe_resp)(struct msm_vfe_resp_t *,
-		enum msm_queut_t, void *syncdata);
+		enum msm_queue_t, void *syncdata);
+	void* (*vfe_alloc)(int, void *syncdata);
 };
 
 struct msm_camvfe_fn_t {
-	int (*vfe_init)      (struct msm_vfe_resp *, struct platform_device *);
-	int (*vfe_enable)    (struct camera_enable_cmd_t *);
-	int (*vfe_config)    (struct msm_vfe_cfg_cmd_t *, void *);
-	int (*vfe_disable)   (struct camera_enable_cmd_t *,
+	int (*vfe_init)(struct msm_vfe_resp *, struct platform_device *);
+	int (*vfe_enable)(struct camera_enable_cmd_t *);
+	int (*vfe_config)(struct msm_vfe_cfg_cmd_t *, void *);
+	int (*vfe_disable)(struct camera_enable_cmd_t *,
 		struct platform_device *dev);
-	void (*vfe_release)  (struct platform_device *);
+	void (*vfe_release)(struct platform_device *);
 };
 
 struct msm_sensor_ctrl_t {
@@ -85,52 +81,56 @@ struct msm_sensor_ctrl_t {
 };
 
 struct msm_sync_t {
+	/* These two queues are accessed from a process context only. */
 	struct hlist_head frame; /* most-frequently accessed */
 	struct hlist_head stats;
 
-	spinlock_t msg_event_queue_lock;
-	struct list_head msg_event_queue;
+	/* The following queues are accessed from both process and interrupt
+	 * context.
+	 */
+	spinlock_t msg_event_q_lock;
+	struct list_head msg_event_q;
 	wait_queue_head_t msg_event_wait;
 
 	spinlock_t prev_frame_q_lock;
 	struct list_head prev_frame_q;
 	wait_queue_head_t prev_frame_wait;
+	int unblock_poll_frame;
 
 	spinlock_t pict_frame_q_lock;
 	struct list_head pict_frame_q;
 	wait_queue_head_t pict_frame_wait;
 
-	spinlock_t ctrl_status_lock;
-	struct list_head ctrl_status_queue;
+	spinlock_t ctrl_status_q_lock;
+	struct list_head ctrl_status_q;
 	wait_queue_head_t ctrl_status_wait;
-};
 
-struct msm_device_t {
-	struct msm_sync_t sync; /* most-frequently accessed */
+	struct msm_camera_sensor_info *sdata;
 	struct msm_camvfe_fn_t vfefn;
-	struct device *device;
-	struct cdev cdev_frame;
-	struct cdev cdev_control;
-	struct cdev cdev_config;
-	int opened_frame;
-	int opened_control;
-	int opened_config;
+	struct msm_sensor_ctrl_t sctrl;
+	struct wake_lock wake_lock;
 	struct platform_device *pdev;
-
-	struct mutex lock;
 	uint8_t opencnt;
+	void *cropinfo;
+	int  croplen;
+	unsigned pict_pp;
 
 	const char *apps_id;
 
-	void *cropinfo;
-	int  croplen;
-
-	unsigned pict_pp;
-
-	struct msm_sensor_ctrl_t sctrl;
-
+	struct mutex lock;
 	struct list_head list;
-	struct wake_lock wake_lock;
+};
+
+#define MSM_APPS_ID_V4L2 "msm_v4l2"
+#define MSM_APPS_ID_PROP "msm_qct"
+
+struct msm_device_t {
+	struct msm_sync_t *sync; /* most-frequently accessed */
+	struct mutex lock;
+
+	struct device *device;
+	struct cdev cdev;
+	int opened;
 };
 
 /* this structure is used in kernel */
@@ -142,8 +142,8 @@ struct msm_queue_cmd_t {
 	 * 3 - adsp message;
 	 * 4 - v4l2 request;
 	 */
-	enum msm_queut_t type;
-	void             *command;
+	enum msm_queue_t type;
+	void *command;
 };
 
 struct register_address_value_pair_t {
@@ -153,7 +153,7 @@ struct register_address_value_pair_t {
 
 struct msm_pmem_region {
 	struct hlist_node list;
-	enum msm_pmem_t type;
+	int type;
 	void *vaddr;
 	unsigned long paddr;
 	unsigned long len;
@@ -180,30 +180,21 @@ static inline int msm_camera_flash_set_led_state(unsigned led_state)
 #endif
 
 /* Below functions are added for V4L2 kernel APIs */
-struct msm_driver {
-	struct msm_device_t *vmsm;
-	int (*init)(struct msm_device_t *);
-	int (*ctrl)(struct msm_ctrl_cmd_t *,
-		struct msm_device_t *);
-
-	int (*reg_pmem)(struct msm_pmem_info_t *,
-		struct msm_device_t *);
-
-	int (*get_frame) (struct msm_frame_t *,
-		struct msm_device_t *);
-
-	int (*put_frame) (struct msm_frame_t *,
-		struct msm_device_t *msm);
-
-	int (*get_pict) (struct msm_ctrl_cmd_t *,
-		struct msm_device_t *msm);
-
-	unsigned int (*drv_poll) (struct file *, struct poll_table_struct *,
-		struct msm_device_t *msm);
+struct msm_v4l2_driver {
+	struct msm_sync_t *sync;
+	int (*open)(struct msm_sync_t *, const char *apps_id);
+	int (*release)(struct msm_sync_t *);
+	int (*ctrl)(struct msm_sync_t *, struct msm_ctrl_cmd_t *);
+	int (*reg_pmem)(struct msm_sync_t *, struct msm_pmem_info_t *);
+	int (*get_frame) (struct msm_sync_t *, struct msm_frame_t *);
+	int (*put_frame) (struct msm_sync_t *, struct msm_frame_t *);
+	int (*get_pict) (struct msm_sync_t *, struct msm_ctrl_cmd_t *);
+	unsigned int (*drv_poll) (struct msm_sync_t *, struct file *,
+				struct poll_table_struct *);
 };
 
-int msm_register(struct msm_driver *, const char *);
-int msm_unregister(struct msm_driver *, const char *);
+int msm_v4l2_register(struct msm_v4l2_driver *);
+int msm_v4l2_unregister(struct msm_v4l2_driver *);
 
 void msm_camvfe_init(void);
 int msm_camvfe_check(void *);

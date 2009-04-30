@@ -290,7 +290,7 @@ static struct i2c_client *s5k3e2fx_client;
 struct s5k3e2fx_ctrl_t {
 	const struct msm_camera_sensor_info *sensordata;
 
-	enum sensor_mode_t sensormode;
+	int sensormode;
 	uint32_t fps_divider; /* init to 1 * 0x00000400 */
 	uint32_t pict_fps_divider; /* init to 1 * 0x00000400 */
 
@@ -973,8 +973,7 @@ static int32_t s5k3e2fx_set_pict_exp_gain(uint16_t gain, uint32_t line)
 	return rc;
 }
 
-static int32_t s5k3e2fx_video_config(enum sensor_mode_t mode,
-	enum sensor_resolution_t res)
+static int32_t s5k3e2fx_video_config(int mode, int res)
 {
 	int32_t rc;
 
@@ -1009,7 +1008,7 @@ static int32_t s5k3e2fx_video_config(enum sensor_mode_t mode,
 	return rc;
 }
 
-static int32_t s5k3e2fx_snapshot_config(enum sensor_mode_t mode)
+static int32_t s5k3e2fx_snapshot_config(int mode)
 {
 	int32_t rc = 0;
 
@@ -1023,7 +1022,7 @@ static int32_t s5k3e2fx_snapshot_config(enum sensor_mode_t mode)
 	return rc;
 }
 
-static int32_t s5k3e2fx_raw_snapshot_config(enum sensor_mode_t mode)
+static int32_t s5k3e2fx_raw_snapshot_config(int mode)
 {
 	int32_t rc = 0;
 
@@ -1037,8 +1036,7 @@ static int32_t s5k3e2fx_raw_snapshot_config(enum sensor_mode_t mode)
 	return rc;
 }
 
-static int32_t s5k3e2fx_set_sensor_mode(enum sensor_mode_t mode,
-	enum sensor_resolution_t res)
+static int32_t s5k3e2fx_set_sensor_mode(int mode, int res)
 {
 	int32_t rc = 0;
 
@@ -1082,8 +1080,7 @@ static int32_t s5k3e2fx_set_default_focus(void)
 	return rc;
 }
 
-static int32_t s5k3e2fx_move_focus(enum sensor_move_focus_t direction,
-	int32_t num_steps)
+static int32_t s5k3e2fx_move_focus(int direction, int32_t num_steps)
 {
 	int32_t rc = 0;
 	int32_t i;

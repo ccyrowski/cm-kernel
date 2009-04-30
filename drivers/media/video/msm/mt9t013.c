@@ -105,7 +105,7 @@ static struct  i2c_client *mt9t013_client;
 struct mt9t013_ctrl_t {
 	const struct msm_camera_sensor_info *sensordata;
 
-	enum sensor_mode_t sensormode;
+	int sensormode;
 	uint32_t fps_divider; 		/* init to 1 * 0x00000400 */
 	uint32_t pict_fps_divider; 	/* init to 1 * 0x00000400 */
 
@@ -957,8 +957,7 @@ static int32_t mt9t013_setting(enum mt9t013_reg_update_t rupdate,
 	return rc;
 }
 
-static int32_t mt9t013_video_config(enum sensor_mode_t mode,
-	enum sensor_resolution_t res)
+static int32_t mt9t013_video_config(int mode, int res)
 {
 	int32_t rc;
 
@@ -992,7 +991,7 @@ static int32_t mt9t013_video_config(enum sensor_mode_t mode,
 	return rc;
 }
 
-static int32_t mt9t013_snapshot_config(enum sensor_mode_t mode)
+static int32_t mt9t013_snapshot_config(int mode)
 {
 	int32_t rc = 0;
 
@@ -1008,7 +1007,7 @@ static int32_t mt9t013_snapshot_config(enum sensor_mode_t mode)
 	return rc;
 }
 
-static int32_t mt9t013_raw_snapshot_config(enum sensor_mode_t mode)
+static int32_t mt9t013_raw_snapshot_config(int mode)
 {
 	int32_t rc = 0;
 
@@ -1037,8 +1036,7 @@ static int32_t mt9t013_power_down(void)
 	return rc;
 }
 
-static int32_t mt9t013_move_focus(enum sensor_move_focus_t direction,
-	int32_t num_steps)
+static int32_t mt9t013_move_focus(int direction, int32_t num_steps)
 {
 	int16_t step_direction;
 	int16_t actual_step;
@@ -1224,8 +1222,7 @@ static int mt9t013_init_client(struct i2c_client *client)
 }
 
 
-static int32_t mt9t013_set_sensor_mode(enum sensor_mode_t mode,
-		enum sensor_resolution_t res)
+static int32_t mt9t013_set_sensor_mode(int mode, int res)
 {
 	int32_t rc = 0;
 	rc = mt9t013_i2c_write_w(mt9t013_client->addr,
