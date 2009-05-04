@@ -34,6 +34,7 @@
 #include "devices.h"
 
 #define DEBUG_SAPPHIRE_PANEL 0
+#define userid 0xD10
 
 enum sapphire_panel_type {
 	SAPPHIRE_PANEL_SHARP = 0,
@@ -432,8 +433,7 @@ static void sapphire_mddi_power_client(struct msm_mddi_client_data *client_data,
 		msleep(3);
 	} else {
 		gpio_set_value(SAPPHIRE_GPIO_MDDI_32K_EN, 0);
-		gpio_set_value(MDDI_RST_N, 0);
-		msleep(10);
+
 		vreg_disable(vreg_lcm_2v85);
 		on_off = 1;
 		id = PM_VREG_PDOWN_AUX_ID;
@@ -470,7 +470,9 @@ static int sapphire_mddi_toshiba_client_init(
 	g_panel_id = panel_id =
 		(client_data->remote_read(client_data, GPIODATA) >> 4) & 3;
 	if (panel_id > 1) {
+#if DEBUG_SAPPHIRE_PANEL
 		printk(KERN_ERR "unknown panel id at mddi_enable\n");
+#endif
 		return -1;
 	}
 	return 0;
@@ -480,6 +482,9 @@ static int sapphire_mddi_toshiba_client_uninit(
 			struct msm_mddi_bridge_platform_data *bridge_data,
 			struct msm_mddi_client_data *client_data)
 {
+	gpio_set_value(MDDI_RST_N, 0);
+	msleep(10);
+
 	return 0;
 }
 
@@ -496,18 +501,23 @@ static int sapphire_mddi_panel_unblank(
 	panel_id = (client_data->remote_read(client_data, GPIODATA) >> 4) & 3;
 	switch (panel_id) {
 	case 0:
+#if DEBUG_SAPPHIRE_PANEL
 		printk(KERN_DEBUG "init sharp panel\n");
+#endif
 		sapphire_process_mddi_table(client_data,
 					 mddi_sharp_init_table,
 					 ARRAY_SIZE(mddi_sharp_init_table));
 		break;
 	case 1:
+#if DEBUG_SAPPHIRE_PANEL
 		printk(KERN_DEBUG "init tpo panel\n");
+#endif
 		sapphire_process_mddi_table(client_data,
 					 mddi_tpo_init_table,
 					 ARRAY_SIZE(mddi_tpo_init_table));
 		break;
 	default:
+
 		printk(KERN_DEBUG "unknown panel_id: %d\n", panel_id);
 		ret = -1;
 	};
@@ -561,9 +571,178 @@ static int sapphire_mddi_panel_blank(
 	return ret;
 }
 
-/* Initial sequence of TPO panel with Novatek NT35399 MDDI client */
+
+/* Initial sequence of sharp panel with Novatek NT35399 MDDI client */
+static const struct mddi_table sharp2_init_table[] = {
+	{ 0x0110, 0x00 },
+	{    0x1,  0x5 },
+
+	{ 0x0F20, 0x55 },
+	{ 0x0F21, 0xAA },
+	{ 0x0F22, 0x66 },
+	{ 0x0F32, 0x01 },
+	{ 0x0F36, 0x10 },
+
+	{ 0x02A0, 0x00 },
+	{ 0x02A1, 0x00 },
+	{ 0x02A2, 0x3F },
+	{ 0x02A3, 0x01 },
+	{ 0x02B0, 0x00 },
+	{ 0x02B1, 0x00 },
+	{ 0x02B2, 0xDF },
+	{ 0x02B3, 0x01 },
+	{ 0x02D0, 0x00 },
+	{ 0x02D1, 0x00 },
+	{ 0x02D2, 0x00 },
+	{ 0x02D3, 0x00 },
+	{ 0x0350, 0x70 },
+	{ 0x0351, 0x00 },
+	{ 0x0360, 0x30 },
+	{ 0x0361, 0xC0 },
+	{ 0x0362, 0x00 },
+	{ 0x0370, 0x00 },
+	{ 0x0371, 0xEF },
+	{ 0x0372, 0x01 },
+
+	{ 0x0B00, 0x10 },
+
+	{ 0x0B10, 0x00 },
+	{ 0x0B20, 0x22 },
+	{ 0x0B30, 0x46 },
+	{ 0x0B40, 0x07 },
+	{ 0x0B41, 0x1C },
+	{ 0x0B50, 0x0F },
+	{ 0x0B51, 0x7A },
+	{ 0x0B60, 0x16 },
+	{ 0x0B70, 0x0D },
+	{ 0x0B80, 0x04 },
+	{ 0x0B90, 0x07 },
+	{ 0x0BA0, 0x04 },
+	{ 0x0BA1, 0x86 },
+	{ 0x0BB0, 0xFF },
+	{ 0x0BB1, 0x01 },
+	{ 0x0BB2, 0xF7 },
+	{ 0x0BB3, 0x01 },
+	{ 0x0BC0, 0x00 },
+	{ 0x0BC1, 0x00 },
+	{ 0x0BC2, 0x00 },
+	{ 0x0BC3, 0x00 },
+	{ 0x0BE0, 0x01 },
+	{ 0x0BE1, 0x3F },
+
+	{ 0x0BF0, 0x03 },
+
+	{ 0x0C10, 0x02 },
+
+	{ 0x0C30, 0x22 },
+	{ 0x0C31, 0x20 },
+	{ 0x0C40, 0x48 },
+	{ 0x0C41, 0x06 },
+
+	{ 0xE00, 0x0028},
+	{ 0xE01, 0x002F},
+	{ 0xE02, 0x0032},
+	{ 0xE03, 0x000A},
+	{ 0xE04, 0x0023},
+	{ 0xE05, 0x0024},
+	{ 0xE06, 0x0022},
+	{ 0xE07, 0x0012},
+	{ 0xE08, 0x000D},
+	{ 0xE09, 0x0035},
+	{ 0xE0A, 0x000E},
+	{ 0xE0B, 0x001A},
+	{ 0xE0C, 0x003C},
+	{ 0xE0D, 0x003A},
+	{ 0xE0E, 0x0050},
+	{ 0xE0F, 0x0069},
+	{ 0xE10, 0x0006},
+	{ 0xE11, 0x001F},
+	{ 0xE12, 0x0035},
+	{ 0xE13, 0x0020},
+	{ 0xE14, 0x0043},
+	{ 0xE15, 0x0030},
+	{ 0xE16, 0x003C},
+	{ 0xE17, 0x0010},
+	{ 0xE18, 0x0009},
+	{ 0xE19, 0x0051},
+	{ 0xE1A, 0x001D},
+	{ 0xE1B, 0x003C},
+	{ 0xE1C, 0x0053},
+	{ 0xE1D, 0x0041},
+	{ 0xE1E, 0x0045},
+	{ 0xE1F, 0x004B},
+	{ 0xE20, 0x000A},
+	{ 0xE21, 0x0014},
+	{ 0xE22, 0x001C},
+	{ 0xE23, 0x0013},
+	{ 0xE24, 0x002E},
+	{ 0xE25, 0x0029},
+	{ 0xE26, 0x001B},
+	{ 0xE27, 0x0014},
+	{ 0xE28, 0x000E},
+	{ 0xE29, 0x0032},
+	{ 0xE2A, 0x000D},
+	{ 0xE2B, 0x001B},
+	{ 0xE2C, 0x0033},
+	{ 0xE2D, 0x0033},
+	{ 0xE2E, 0x005B},
+	{ 0xE2F, 0x0069},
+	{ 0xE30, 0x0006},
+	{ 0xE31, 0x0014},
+	{ 0xE32, 0x003D},
+	{ 0xE33, 0x0029},
+	{ 0xE34, 0x0042},
+	{ 0xE35, 0x0032},
+	{ 0xE36, 0x003F},
+	{ 0xE37, 0x000E},
+	{ 0xE38, 0x0008},
+	{ 0xE39, 0x0059},
+	{ 0xE3A, 0x0015},
+	{ 0xE3B, 0x002E},
+	{ 0xE3C, 0x0049},
+	{ 0xE3D, 0x0058},
+	{ 0xE3E, 0x0061},
+	{ 0xE3F, 0x006B},
+	{ 0xE40, 0x000A},
+	{ 0xE41, 0x001A},
+	{ 0xE42, 0x0022},
+	{ 0xE43, 0x0014},
+	{ 0xE44, 0x002F},
+	{ 0xE45, 0x002A},
+	{ 0xE46, 0x001A},
+	{ 0xE47, 0x0014},
+	{ 0xE48, 0x000E},
+	{ 0xE49, 0x002F},
+	{ 0xE4A, 0x000F},
+	{ 0xE4B, 0x001B},
+	{ 0xE4C, 0x0030},
+	{ 0xE4D, 0x002C},
+	{ 0xE4E, 0x0051},
+	{ 0xE4F, 0x0069},
+	{ 0xE50, 0x0006},
+	{ 0xE51, 0x001E},
+	{ 0xE52, 0x0043},
+	{ 0xE53, 0x002F},
+	{ 0xE54, 0x0043},
+	{ 0xE55, 0x0032},
+	{ 0xE56, 0x0043},
+	{ 0xE57, 0x000D},
+	{ 0xE58, 0x0008},
+	{ 0xE59, 0x0059},
+	{ 0xE5A, 0x0016},
+	{ 0xE5B, 0x0030},
+	{ 0xE5C, 0x004B},
+	{ 0xE5D, 0x0051},
+	{ 0xE5E, 0x005A},
+	{ 0xE5F, 0x006B},
+
+
+
+        { 0x0290, 0x01 },
+};
 
 #undef TPO2_ONE_GAMMA
+/* Initial sequence of TPO panel with Novatek NT35399 MDDI client */
 
 static const struct mddi_table tpo2_init_table[] = {
 	/* Panel interface control */
@@ -576,11 +755,11 @@ static const struct mddi_table tpo2_init_table[] = {
 	{ 0xB70, 0x0F },
 	{ 0xB80, 0x03 },
 	{ 0xB90, 0x00 },
-	{ 0x350, 0x60 },	/* FTE is at line 0x60 */
+	{ 0x350, 0x70 },        /* FTE is at line 0x70 */
 
 	/* Entry Mode */
 	{ 0x360, 0x30 },
-	{ 0x361, 0xC0 },
+	{ 0x361, 0xC1 },
 	{ 0x362, 0x04 },
 
 /* 0x2 for gray scale gamma correction, 0x12 for RGB gamma correction  */
@@ -812,8 +991,19 @@ static const struct mddi_table tpo2_power_off[] = {
 
 static int nt35399_detect_panel(struct msm_mddi_client_data *client_data)
 {
-	/* Sharp panel is not available now, return TPO only. */
-	return SAPPHIRE_PANEL_TOPPOLY ;
+	int id = -1 ;
+
+	id = client_data->remote_read(client_data, userid) ;
+	switch(id) {
+	case 0:
+		return SAPPHIRE_PANEL_TOPPOLY;
+	case 1:
+		return SAPPHIRE_PANEL_SHARP;
+	default :
+		printk(KERN_ERR, "%s(): Invalid panel ID!\n",
+		       __FUNCTION__);
+		return -1 ;
+	}
 }
 
 static int nt35399_client_init(
@@ -823,17 +1013,9 @@ static int nt35399_client_init(
 	int panel_id;
 
 	if (g_panel_inited == 0) {
-		/* Skip initialization at booting, to avoid
-		 * blink problem due to consecutive initialization.
-		 */
-		g_panel_inited = 1 ;
 		g_panel_id = panel_id = nt35399_detect_panel(client_data);
+		g_panel_inited = 1 ;
 	} else {
-		/* The NT35399 requires following delay seqence for
-		 * debouncing detection. This sequence shouble be executed
-		 * while the panel is in the state of "display off" or 
-		 * uninitialization.
-		 */
 		gpio_set_value(MDDI_RST_N, 1);
 		msleep(10);
 		gpio_set_value(MDDI_RST_N, 0);
@@ -841,15 +1023,23 @@ static int nt35399_client_init(
 		gpio_set_value(MDDI_RST_N, 1);
 		mdelay(10);
 
-		client_data->auto_hibernate(client_data, 0);
-		sapphire_process_mddi_table(client_data, tpo2_init_table,
-				ARRAY_SIZE(tpo2_init_table));
-		client_data->auto_hibernate(client_data, 1);
-	}
+		g_panel_id = panel_id = nt35399_detect_panel(client_data);
+		if (panel_id == -1) {
+			printk("Invalid panel id\n");
+			return -1;
+		}
 
-	if (panel_id == -1) {
-		printk(KERN_ERR "Invalid panel id\n");
-		return -1;
+		client_data->auto_hibernate(client_data, 0);
+
+		if (panel_id == SAPPHIRE_PANEL_TOPPOLY) {
+			sapphire_process_mddi_table(client_data, tpo2_init_table,
+						    ARRAY_SIZE(tpo2_init_table));
+		} else if(panel_id == SAPPHIRE_PANEL_SHARP) {
+			sapphire_process_mddi_table(client_data, sharp2_init_table,
+						    ARRAY_SIZE(sharp2_init_table));
+		}
+
+		client_data->auto_hibernate(client_data, 1);
 	}
 
 	return 0;
