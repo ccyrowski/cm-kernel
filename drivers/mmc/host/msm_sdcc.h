@@ -214,6 +214,7 @@ struct msmsdcc_host {
 	unsigned int		pclk_rate;
 
 	u32			pwr;
+	u32			saved_irq0mask;	/* MMCIMASK0 reg value */
 	struct mmc_platform_data *plat;
 
 	struct timer_list	timer;

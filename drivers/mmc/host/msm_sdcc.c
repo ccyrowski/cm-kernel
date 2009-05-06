@@ -1133,6 +1133,7 @@ msmsdcc_probe(struct platform_device *pdev)
 	mmc->max_seg_size = mmc->max_req_size;
 
 	writel(0, host->base + MMCIMASK0);
+	host->saved_irq0mask = 0;
 	writel(0x5e007ff, host->base + MMCICLEAR); /* Add: 1 << 25 */
 
 	writel(MCI_IRQENABLE, host->base + MMCIMASK0);
@@ -1249,16 +1250,18 @@ static int
 msmsdcc_suspend(struct platform_device *dev, pm_message_t state)
 {
 	struct mmc_host *mmc = mmc_get_drvdata(dev);
-	struct msmsdcc_host *host = mmc_priv(mmc);
 	int rc = 0;
 
 	if (mmc) {
+		struct msmsdcc_host *host = mmc_priv(mmc);
+
 		if (host->plat->status_irq)
 			disable_irq(host->plat->status_irq);
 
 		if (mmc->card && mmc->card->type != MMC_TYPE_SDIO)
 			rc = mmc_suspend_host(mmc, state);
 		if (!rc) {
+			host->saved_irq0mask = readl(host->base + MMCIMASK0);
 			writel(0, host->base + MMCIMASK0);
 
 			if (host->clks_on) {
@@ -1275,12 +1278,12 @@ static int
 msmsdcc_resume(struct platform_device *dev)
 {
 	struct mmc_host *mmc = mmc_get_drvdata(dev);
-	struct msmsdcc_host *host = mmc_priv(mmc);
 	unsigned long flags;
 
-	spin_lock_irqsave(&host->lock, flags);
 	if (mmc) {
 		struct msmsdcc_host *host = mmc_priv(mmc);
+
+		spin_lock_irqsave(&host->lock, flags);
 
 		if (!host->clks_on) {
 			clk_enable(host->pclk);
@@ -1288,7 +1291,7 @@ msmsdcc_resume(struct platform_device *dev)
 			host->clks_on = 1;
 		}
 
-		writel(MCI_IRQENABLE, host->base + MMCIMASK0);
+		writel(host->saved_irq0mask, host->base + MMCIMASK0);
 
 		spin_unlock_irqrestore(&host->lock, flags);
 
