@@ -468,11 +468,9 @@ static struct msm_queue_cmd_t* __msm_control(struct msm_sync_t *sync,
 	spin_unlock_irqrestore(&sync->msg_event_q_lock, flags);
 
 	/* wait for config status */
-	CDBG("msm_control, timeout = %d\n", timeout);
-	rc = wait_event_interruptible_timeout(
+	rc = wait_event_interruptible(
 			sync->ctrl_status_wait,
-			!list_empty_careful(&sync->ctrl_status_q),
-			msecs_to_jiffies(timeout));
+			!list_empty_careful(&sync->ctrl_status_q));
 	if (list_empty_careful(&sync->ctrl_status_q)) {
 		if (!rc)
 			rc = -ETIMEDOUT;
@@ -532,10 +530,13 @@ static int msm_control(struct msm_sync_t *sync, void __user *arg)
 	*ctrlcmd = udata;
 	ctrlcmd->value = ctrlcmd + 1;
 
-	if (copy_from_user(ctrlcmd->value, udata.value, udata.length)) {
-		ERR_COPY_FROM_USER();
-		rc = -EFAULT;
-		goto end;
+	if (udata.length) {
+		if (copy_from_user(ctrlcmd->value,
+				udata.value, udata.length)) {
+			ERR_COPY_FROM_USER();
+			rc = -EFAULT;
+			goto end;
+		}
 	}
 
 	qcmd_temp = __msm_control(sync, qcmd, udata.timeout_ms);
@@ -602,7 +603,7 @@ static int msm_get_stats(struct msm_sync_t *sync, void __user *arg)
 
 	timeout = (int)se.timeout_ms;
 
-	pr_info("msm_get_stats timeout %d\n", timeout);
+	CDBG("msm_get_stats timeout %d\n", timeout);
 	rc = wait_event_interruptible_timeout(
 			sync->msg_event_wait,
 			!list_empty_careful(&sync->msg_event_q),
@@ -615,7 +616,7 @@ static int msm_get_stats(struct msm_sync_t *sync, void __user *arg)
 			return rc;
 		}
 	}
-	pr_info("msm_get_stats returned from wait: %d\n", rc);
+	CDBG("msm_get_stats returned from wait: %d\n", rc);
 
 	spin_lock_irqsave(&sync->msg_event_q_lock, flags);
 	BUG_ON(list_empty(&sync->msg_event_q));
