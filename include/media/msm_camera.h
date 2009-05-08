@@ -297,8 +297,9 @@ struct msm_snapshot_pp_status_t {
 #define CFG_GET_PREV_P_PL		23
 #define CFG_GET_PICT_L_PF		24
 #define CFG_GET_PICT_P_PL		25
-#define CFG_GET_PICT_MAX_EXP_LC		26
-#define CFG_MAX				27
+#define CFG_GET_AF_MAX_STEPS		26
+#define CFG_GET_PICT_MAX_EXP_LC		27
+#define CFG_MAX				28
 
 #define MOVE_NEAR	0
 #define MOVE_FAR	1
@@ -350,7 +351,7 @@ struct sensor_cfg_data_t {
 	int cfgtype;
 	int mode;
 	int rs;
-	int max_steps; //FIXME: initialize and use this field
+	uint8_t max_steps;
 
 	union {
 		int8_t effect;
@@ -362,9 +363,9 @@ struct sensor_cfg_data_t {
 		uint32_t pict_max_exp_lc;
 		uint16_t p_fps;
 		struct sensor_pict_fps gfps;
-		struct exp_gain_cfg    exp_gain;
-		struct focus_cfg       focus;
-		struct fps_cfg	       fps;
+		struct exp_gain_cfg exp_gain;
+		struct focus_cfg focus;
+		struct fps_cfg fps;
 	} cfg;
 };
 

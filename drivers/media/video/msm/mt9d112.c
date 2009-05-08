@@ -86,7 +86,7 @@ static int32_t mt9d112_i2c_txdata(unsigned short saddr,
 static int32_t mt9d112_i2c_write(unsigned short saddr,
 	unsigned short waddr, unsigned short wdata, enum mt9d112_width_t width)
 {
-	int32_t rc = -EFAULT;
+	int32_t rc = -EIO;
 	unsigned char buf[4];
 
 	memset(buf, 0, sizeof(buf));
@@ -125,7 +125,7 @@ static int32_t mt9d112_i2c_write_table(
 	int num_of_items_in_table)
 {
 	int i;
-	int32_t rc = -EFAULT;
+	int32_t rc = -EIO;
 
 	for (i = 0; i < num_of_items_in_table; i++) {
 		rc = mt9d112_i2c_write(mt9d112_client->addr,
@@ -372,7 +372,7 @@ static long mt9d112_set_sensor_mode(int mode)
 		break;
 
 	default:
-		return -EFAULT;
+		return -EINVAL;
 	}
 
 	return 0;
@@ -475,6 +475,8 @@ static long mt9d112_set_effect(int mode, int effect)
 	case CAMERA_EFFECT_PASTEL:
 	case CAMERA_EFFECT_MOSAIC:
 	case CAMERA_EFFECT_RESIZE:
+		return -EINVAL;
+
 	default: {
 		reg_val = 0x6440;
 		rc = mt9d112_i2c_write(mt9d112_client->addr,
@@ -487,7 +489,7 @@ static long mt9d112_set_effect(int mode, int effect)
 		if (rc < 0)
 			return rc;
 
-		return -EFAULT;
+		return -EINVAL;
 	}
 	}
 
@@ -562,7 +564,7 @@ static int mt9d112_sensor_init_probe(const struct msm_camera_sensor_info *data)
 
 	/* Check if it matches it with the value in Datasheet */
 	if (model_id != MT9D112_MODEL_ID) {
-		rc = -EFAULT;
+		rc = -EINVAL;
 		goto init_probe_fail;
 	}
 
@@ -622,10 +624,9 @@ int mt9d112_sensor_config(void __user *argp)
 	struct sensor_cfg_data_t cfg_data;
 	long   rc = 0;
 
-	if (copy_from_user(
-				&cfg_data,
-				(void *)argp,
-				sizeof(struct sensor_cfg_data_t)))
+	if (copy_from_user(&cfg_data,
+			(void *)argp,
+			sizeof(struct sensor_cfg_data_t)))
 		return -EFAULT;
 
 	/* down(&mt9d112_sem); */
@@ -640,13 +641,13 @@ int mt9d112_sensor_config(void __user *argp)
 			break;
 
 		case CFG_SET_EFFECT:
-			rc = mt9d112_set_effect(
-						cfg_data.mode,
+			rc = mt9d112_set_effect(cfg_data.mode,
 						cfg_data.cfg.effect);
 			break;
 
+		case CFG_GET_AF_MAX_STEPS:
 		default:
-			rc = -EFAULT;
+			rc = -EINVAL;
 			break;
 		}
 

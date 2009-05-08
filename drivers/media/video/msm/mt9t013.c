@@ -61,14 +61,10 @@ enum mt9t013_resolution_t {
 };
 
 enum mt9t013_reg_update_t {
-  /* Sensor egisters that need to be updated during initialization */
-  REG_INIT,
-  /* Sensor egisters that needs periodic I2C writes */
-  UPDATE_PERIODIC,
-  /* All the sensor Registers will be updated */
-  UPDATE_ALL,
-  /* Not valid update */
-  UPDATE_INVALID
+	REG_INIT, /* registers that need to be updated during initialization */
+	UPDATE_PERIODIC, /* registers that needs periodic I2C writes */
+	UPDATE_ALL, /* all registers will be updated */
+	UPDATE_INVALID
 };
 
 enum mt9t013_setting_t {
@@ -82,7 +78,7 @@ enum mt9t013_setting_t {
 /*
 * AF Total steps parameters
 */
-#define MT9T013_TOTAL_STEPS_NEAR_TO_FAR    30 /* 28 */
+#define MT9T013_TOTAL_STEPS_NEAR_TO_FAR    30
 
 /*
  * Time in milisecs for waiting for the sensor to reset.
@@ -127,15 +123,7 @@ static struct mt9t013_ctrl_t *mt9t013_ctrl;
 static DECLARE_WAIT_QUEUE_HEAD(mt9t013_wait_queue);
 DECLARE_MUTEX(mt9t013_sem);
 
-
-/*=============================================================
-	EXTERNAL DECLARATIONS
-==============================================================*/
-extern struct mt9t013_reg_t mt9t013_regs;	/* from mt9t013_reg.c */
-
-
-
-/*=============================================================*/
+extern struct mt9t013_reg_t mt9t013_regs; /* from mt9t013_reg.c */
 
 static int mt9t013_i2c_rxdata(unsigned short saddr,
 	unsigned char *rxdata, int length)
@@ -212,7 +200,7 @@ static int32_t mt9t013_i2c_txdata(unsigned short saddr,
 static int32_t mt9t013_i2c_write_b(unsigned short saddr,
 	unsigned short waddr, unsigned short wdata)
 {
-	int32_t rc = -EFAULT;
+	int32_t rc = -EIO;
 	unsigned char buf[2];
 
 	memset(buf, 0, sizeof(buf));
@@ -230,7 +218,7 @@ static int32_t mt9t013_i2c_write_b(unsigned short saddr,
 static int32_t mt9t013_i2c_write_w(unsigned short saddr,
 	unsigned short waddr, unsigned short wdata)
 {
-	int32_t rc = -EFAULT;
+	int32_t rc = -EIO;
 	unsigned char buf[4];
 
 	memset(buf, 0, sizeof(buf));
@@ -252,7 +240,7 @@ static int32_t mt9t013_i2c_write_w_table(
 	struct mt9t013_i2c_reg_conf *reg_conf_tbl, int num_of_items_in_table)
 {
 	int i;
-	int32_t rc = -EFAULT;
+	int32_t rc = -EIO;
 
 	for (i = 0; i < num_of_items_in_table; i++) {
 		rc = mt9t013_i2c_write_w(mt9t013_client->addr,
@@ -269,8 +257,7 @@ static int32_t mt9t013_test(enum mt9t013_test_mode_t mo)
 {
 	int32_t rc = 0;
 
-	rc =
-		mt9t013_i2c_write_w(mt9t013_client->addr,
+	rc = mt9t013_i2c_write_w(mt9t013_client->addr,
 			REG_GROUPED_PARAMETER_HOLD,
 			GROUPED_PARAMETER_HOLD);
 	if (rc < 0)
@@ -283,15 +270,13 @@ static int32_t mt9t013_test(enum mt9t013_test_mode_t mo)
 				mt9t013_regs.ttbl_size);
 		if (rc < 0)
 			return rc;
-
 		rc = mt9t013_i2c_write_w(mt9t013_client->addr,
 				REG_TEST_PATTERN_MODE, (uint16_t)mo);
 		if (rc < 0)
 			return rc;
 	}
 
-	rc =
-		mt9t013_i2c_write_w(mt9t013_client->addr,
+	rc = mt9t013_i2c_write_w(mt9t013_client->addr,
 			REG_GROUPED_PARAMETER_HOLD,
 			GROUPED_PARAMETER_UPDATE);
 	if (rc < 0)
@@ -304,7 +289,6 @@ static int32_t mt9t013_set_lc(void)
 {
 	int32_t rc;
 
-/*	rc = mt9t013_i2c_write_w_table(mt9t013_regs.lctbl, ARRAY_SIZE(mt9t013_regs.lctbl)); */
 	rc = mt9t013_i2c_write_w_table(mt9t013_regs.lctbl, mt9t013_regs.lctbl_size);
 	if (rc < 0)
 		return rc;
@@ -320,8 +304,7 @@ static int32_t mt9t013_set_default_focus(uint8_t af_step)
 	code_val_lsb = af_step;
 
 	/* Write the digital code for current to the actuator */
-	rc =
-		mt9t013_i2c_write_b(MT9T013_AF_I2C_ADDR>>1,
+	rc = mt9t013_i2c_write_b(MT9T013_AF_I2C_ADDR>>1,
 			code_val_msb, code_val_lsb);
 
 	mt9t013_ctrl->curr_lens_pos = 0;
@@ -410,27 +393,25 @@ static int32_t mt9t013_set_fps(struct fps_cfg *fps)
 	mt9t013_ctrl->fps_divider = fps->fps_div;
 	mt9t013_ctrl->pict_fps_divider = fps->pict_fps_div;
 
-	rc =
-		mt9t013_i2c_write_w(mt9t013_client->addr,
+	rc = mt9t013_i2c_write_w(mt9t013_client->addr,
 			REG_GROUPED_PARAMETER_HOLD,
 			GROUPED_PARAMETER_HOLD);
 	if (rc < 0)
 		return -EBUSY;
 
 	CDBG("mt9t013_set_fps: fps_div is %d, frame_rate is %d\n",
-		fps->fps_div,
-		(uint16_t) (
-		mt9t013_regs.reg_pat[RES_PREVIEW].frame_length_lines *
-		fps->fps_div/0x00000400));
+			fps->fps_div,
+			(uint16_t) (mt9t013_regs.reg_pat[RES_PREVIEW].
+						frame_length_lines *
+					fps->fps_div/0x00000400));
 
 	CDBG("mt9t013_set_fps: fps_mult is %d, frame_rate is %d\n",
-		fps->f_mult,
-		(uint16_t) (
-		mt9t013_regs.reg_pat[RES_PREVIEW].line_length_pck *
-		fps->f_mult / 0x00000400));
+			fps->f_mult,
+			(uint16_t)(mt9t013_regs.reg_pat[RES_PREVIEW].
+					line_length_pck *
+					fps->f_mult / 0x00000400));
 
-	rc =
-		mt9t013_i2c_write_w(mt9t013_client->addr,
+	rc = mt9t013_i2c_write_w(mt9t013_client->addr,
 			REG_LINE_LENGTH_PCK,
 			(uint16_t) (
 			mt9t013_regs.reg_pat[RES_PREVIEW].line_length_pck *
@@ -438,8 +419,7 @@ static int32_t mt9t013_set_fps(struct fps_cfg *fps)
 	if (rc < 0)
 		return rc;
 
-	rc =
-		mt9t013_i2c_write_w(mt9t013_client->addr,
+	rc = mt9t013_i2c_write_w(mt9t013_client->addr,
 			REG_GROUPED_PARAMETER_HOLD,
 			GROUPED_PARAMETER_UPDATE);
 	if (rc < 0)
@@ -455,8 +435,7 @@ static int32_t mt9t013_write_exp_gain(uint16_t gain, uint32_t line)
 	enum mt9t013_setting_t setting;
 	int32_t rc = 0;
 
-	if (mt9t013_ctrl->sensormode ==
-			SENSOR_PREVIEW_MODE) {
+	if (mt9t013_ctrl->sensormode == SENSOR_PREVIEW_MODE) {
 		mt9t013_ctrl->my_reg_gain = gain;
 		mt9t013_ctrl->my_reg_line_count = (uint16_t) line;
 	}
@@ -466,15 +445,13 @@ static int32_t mt9t013_write_exp_gain(uint16_t gain, uint32_t line)
 
 	/* Verify no overflow */
 	if (mt9t013_ctrl->sensormode != SENSOR_SNAPSHOT_MODE) {
-		line =
-			(uint32_t) (line * mt9t013_ctrl->fps_divider /
+		line = (uint32_t) (line * mt9t013_ctrl->fps_divider /
 			0x00000400);
 
 		setting = RES_PREVIEW;
 
 	} else {
-		line =
-			(uint32_t) (line * mt9t013_ctrl->pict_fps_divider /
+		line = (uint32_t) (line * mt9t013_ctrl->pict_fps_divider /
 			0x00000400);
 
 		setting = RES_CAPTURE;
@@ -495,14 +472,11 @@ static int32_t mt9t013_write_exp_gain(uint16_t gain, uint32_t line)
 	 * after REG_GLOBAL_GAIN & REG_COARSE_INIT_TIME. This causes
 	 * aec oscillation. Hence removed. */
 
-	rc =
-		mt9t013_i2c_write_w(mt9t013_client->addr,
-			REG_GLOBAL_GAIN, gain);
+	rc = mt9t013_i2c_write_w(mt9t013_client->addr, REG_GLOBAL_GAIN, gain);
 	if (rc < 0)
 		return rc;
 
-	rc =
-		mt9t013_i2c_write_w(mt9t013_client->addr,
+	rc = mt9t013_i2c_write_w(mt9t013_client->addr,
 			REG_COARSE_INT_TIME,
 			(uint16_t)((uint32_t) line * 0x00000400 /
 			line_length_ratio));
@@ -516,13 +490,11 @@ static int32_t mt9t013_set_pict_exp_gain(uint16_t gain, uint32_t line)
 {
 	int32_t rc = 0;
 
-	rc =
-		mt9t013_write_exp_gain(gain, line);
+	rc = mt9t013_write_exp_gain(gain, line);
 	if (rc < 0)
 		return rc;
 
-	rc =
-		mt9t013_i2c_write_w(mt9t013_client->addr,
+	rc = mt9t013_i2c_write_w(mt9t013_client->addr,
 			MT9T013_REG_RESET_REGISTER,
 			0x10CC | 0x0002);
 
@@ -540,8 +512,7 @@ static int32_t mt9t013_setting(enum mt9t013_reg_update_t rupdate,
 	switch (rupdate) {
 	case UPDATE_PERIODIC: {
 
-	if (rt == RES_PREVIEW ||
-			rt == RES_CAPTURE) {
+	if (rt == RES_PREVIEW || rt == RES_CAPTURE) {
 #if 0
 		rc =
 			mt9t013_i2c_write_w(mt9t013_client->addr,
@@ -721,8 +692,7 @@ static int32_t mt9t013_setting(enum mt9t013_reg_update_t rupdate,
 
 	/*CAMSENSOR_REG_UPDATE_PERIODIC */
 	case REG_INIT: {
-	if (rt == RES_PREVIEW ||
-			rt == RES_CAPTURE) {
+	if (rt == RES_PREVIEW || rt == RES_CAPTURE) {
 
 		rc =
 			mt9t013_i2c_write_w(mt9t013_client->addr,
@@ -950,7 +920,7 @@ static int32_t mt9t013_setting(enum mt9t013_reg_update_t rupdate,
 
 	/*CAMSENSOR_REG_INIT */
 	default:
-		rc = -EFAULT;
+		rc = -EINVAL;
 		break;
 	} /* switch (rupdate) */
 
@@ -966,8 +936,7 @@ static int32_t mt9t013_video_config(int mode, int res)
 		rc = mt9t013_setting(UPDATE_PERIODIC, RES_PREVIEW);
 		if (rc < 0)
 			return rc;
-
-			CDBG("sensor configuration done!\n");
+		CDBG("sensor configuration done!\n");
 		break;
 
 	case FULL_SIZE:
@@ -977,33 +946,27 @@ static int32_t mt9t013_video_config(int mode, int res)
 		break;
 
 	default:
-		return 0;
+		return -EINVAL;
 	} /* switch */
 
 	mt9t013_ctrl->prev_res = res;
 	mt9t013_ctrl->curr_res = res;
 	mt9t013_ctrl->sensormode = mode;
 
-	rc =
-		mt9t013_write_exp_gain(mt9t013_ctrl->my_reg_gain,
+	return mt9t013_write_exp_gain(mt9t013_ctrl->my_reg_gain,
 			mt9t013_ctrl->my_reg_line_count);
-
-	return rc;
 }
 
 static int32_t mt9t013_snapshot_config(int mode)
 {
 	int32_t rc = 0;
 
-	rc =
-		mt9t013_setting(UPDATE_PERIODIC, RES_CAPTURE);
+	rc = mt9t013_setting(UPDATE_PERIODIC, RES_CAPTURE);
 	if (rc < 0)
 		return rc;
 
 	mt9t013_ctrl->curr_res = mt9t013_ctrl->pict_res;
-
 	mt9t013_ctrl->sensormode = mode;
-
 	return rc;
 }
 
@@ -1016,9 +979,7 @@ static int32_t mt9t013_raw_snapshot_config(int mode)
 		return rc;
 
 	mt9t013_ctrl->curr_res = mt9t013_ctrl->pict_res;
-
 	mt9t013_ctrl->sensormode = mode;
-
 	return rc;
 }
 
@@ -1026,13 +987,11 @@ static int32_t mt9t013_power_down(void)
 {
 	int32_t rc = 0;
 
-	rc =
-		mt9t013_i2c_write_w(mt9t013_client->addr,
+	rc = mt9t013_i2c_write_w(mt9t013_client->addr,
 			MT9T013_REG_RESET_REGISTER,
 			MT9T013_RESET_REGISTER_PWOFF);
-
-	mdelay(5);
-
+	if (rc >= 0)
+		mdelay(5);
 	return rc;
 }
 
@@ -1167,6 +1126,29 @@ init_probe_done:
 	return rc;
 }
 
+static int32_t mt9t013_poweron_af(void)
+{
+	int32_t rc = 0;
+
+	/* enable AF actuator */
+	CDBG("enable AF actuator, gpio = %d\n",
+			mt9t013_ctrl->sensordata->vcm_pwd);
+	rc = gpio_request(mt9t013_ctrl->sensordata->vcm_pwd, "mt9t013");
+	if (!rc) {
+		gpio_direction_output(mt9t013_ctrl->sensordata->vcm_pwd, 0);
+		mdelay(20);
+		rc = mt9t013_set_default_focus(0);
+	} else
+		pr_err("%s, gpio_request failed (%d)!\n", __func__, rc);
+	return rc;
+}
+
+static void mt9t013_poweroff_af(void)
+{
+	gpio_direction_output(mt9t013_ctrl->sensordata->vcm_pwd, 1);
+	gpio_free(mt9t013_ctrl->sensordata->vcm_pwd);
+}
+
 int mt9t013_sensor_open_init(const struct msm_camera_sensor_info *data)
 {
 	int32_t  rc;
@@ -1203,6 +1185,9 @@ int mt9t013_sensor_open_init(const struct msm_camera_sensor_info *data)
 	else
 		rc = mt9t013_setting(REG_INIT, RES_CAPTURE);
 
+	if (rc >= 0)
+		rc = mt9t013_poweron_af();
+
 	if (rc < 0)
 		goto init_fail;
 	else
@@ -1230,6 +1215,7 @@ static int32_t mt9t013_set_sensor_mode(int mode, int res)
 			GROUPED_PARAMETER_HOLD);
 	if (rc < 0)
 		return rc;
+
 	switch (mode) {
 	case SENSOR_PREVIEW_MODE:
 		rc = mt9t013_video_config(mode, res);
@@ -1244,13 +1230,14 @@ static int32_t mt9t013_set_sensor_mode(int mode, int res)
 		break;
 
 	default:
-		rc = -EINVAL;
-		break;
+		return -EINVAL;
 	}
 
-	rc = mt9t013_i2c_write_w(mt9t013_client->addr,
-			REG_GROUPED_PARAMETER_HOLD,
-			GROUPED_PARAMETER_UPDATE);
+	/* FIXME: what should we do if rc < 0? */
+	if (rc >= 0)
+		return mt9t013_i2c_write_w(mt9t013_client->addr,
+				REG_GROUPED_PARAMETER_HOLD,
+				GROUPED_PARAMETER_UPDATE);
 	return rc;
 }
 
@@ -1259,129 +1246,114 @@ int mt9t013_sensor_config(void __user *argp)
 	struct sensor_cfg_data_t cdata;
 	long   rc = 0;
 
-	if (copy_from_user(&cdata,
-				(void *)argp,
-				sizeof(struct sensor_cfg_data_t)))
+	if (copy_from_user(&cdata, (void *)argp,
+			sizeof(struct sensor_cfg_data_t)))
 		return -EFAULT;
 
 	down(&mt9t013_sem);
 
 	CDBG("mt9t013_sensor_config: cfgtype = %d\n", cdata.cfgtype);
-		switch (cdata.cfgtype) {
-		case CFG_GET_PICT_FPS:
-				mt9t013_get_pict_fps(
-				cdata.cfg.gfps.prevfps,
+	switch (cdata.cfgtype) {
+	case CFG_GET_PICT_FPS:
+		mt9t013_get_pict_fps(cdata.cfg.gfps.prevfps,
 				&(cdata.cfg.gfps.pictfps));
-
-			if (copy_to_user((void *)argp,
+		if (copy_to_user((void *)argp,
 				&cdata,
 				sizeof(struct sensor_cfg_data_t)))
-				rc = -EFAULT;
-			break;
-
-		case CFG_GET_PREV_L_PF:
-			cdata.cfg.prevl_pf =
-			mt9t013_get_prev_lines_pf();
-
-			if (copy_to_user((void *)argp,
-				&cdata,
-				sizeof(struct sensor_cfg_data_t)))
-				rc = -EFAULT;
-			break;
-
-		case CFG_GET_PREV_P_PL:
-			cdata.cfg.prevp_pl =
-				mt9t013_get_prev_pixels_pl();
-
-			if (copy_to_user((void *)argp,
-				&cdata,
-				sizeof(struct sensor_cfg_data_t)))
-				rc = -EFAULT;
-			break;
-
-		case CFG_GET_PICT_L_PF:
-			cdata.cfg.pictl_pf =
-				mt9t013_get_pict_lines_pf();
-
-			if (copy_to_user((void *)argp,
-				&cdata,
-				sizeof(struct sensor_cfg_data_t)))
-				rc = -EFAULT;
-			break;
-
-		case CFG_GET_PICT_P_PL:
-			cdata.cfg.pictp_pl =
-				mt9t013_get_pict_pixels_pl();
-
-			if (copy_to_user((void *)argp,
-				&cdata,
-				sizeof(struct sensor_cfg_data_t)))
-				rc = -EFAULT;
-			break;
-
-		case CFG_GET_PICT_MAX_EXP_LC:
-			cdata.cfg.pict_max_exp_lc =
-				mt9t013_get_pict_max_exp_lc();
-
-			if (copy_to_user((void *)argp,
-				&cdata,
-				sizeof(struct sensor_cfg_data_t)))
-				rc = -EFAULT;
-			break;
-
-		case CFG_SET_FPS:
-		case CFG_SET_PICT_FPS:
-			rc = mt9t013_set_fps(&(cdata.cfg.fps));
-			break;
-
-		case CFG_SET_EXP_GAIN:
-			rc =
-				mt9t013_write_exp_gain(
-					cdata.cfg.exp_gain.gain,
-					cdata.cfg.exp_gain.line);
-			break;
-
-		case CFG_SET_PICT_EXP_GAIN:
-			rc =
-				mt9t013_set_pict_exp_gain(
-					cdata.cfg.exp_gain.gain,
-					cdata.cfg.exp_gain.line);
-			break;
-
-		case CFG_SET_MODE:
-			rc = mt9t013_set_sensor_mode(cdata.mode,
-						cdata.rs);
-			break;
-
-		case CFG_PWR_DOWN:
-			rc = mt9t013_power_down();
-			break;
-
-		case CFG_MOVE_FOCUS:
-			rc =
-				mt9t013_move_focus(
-					cdata.cfg.focus.dir,
-					cdata.cfg.focus.steps);
-			break;
-
-		case CFG_SET_DEFAULT_FOCUS:
-			rc =
-				mt9t013_set_default_focus(
-					cdata.cfg.focus.steps);
-			break;
-
-		case CFG_SET_EFFECT:
-			rc = mt9t013_set_default_focus(
-						cdata.cfg.effect);
-			break;
-
-		default:
 			rc = -EFAULT;
-			break;
-		}
+		break;
+
+	case CFG_GET_PREV_L_PF:
+		cdata.cfg.prevl_pf = mt9t013_get_prev_lines_pf();
+		if (copy_to_user((void *)argp,
+				&cdata,
+				sizeof(struct sensor_cfg_data_t)))
+			rc = -EFAULT;
+		break;
+
+	case CFG_GET_PREV_P_PL:
+		cdata.cfg.prevp_pl = mt9t013_get_prev_pixels_pl();
+		if (copy_to_user((void *)argp,
+				&cdata,
+				sizeof(struct sensor_cfg_data_t)))
+			rc = -EFAULT;
+		break;
+
+	case CFG_GET_PICT_L_PF:
+		cdata.cfg.pictl_pf = mt9t013_get_pict_lines_pf();
+		if (copy_to_user((void *)argp,
+				&cdata,
+				sizeof(struct sensor_cfg_data_t)))
+			rc = -EFAULT;
+		break;
+
+	case CFG_GET_PICT_P_PL:
+		cdata.cfg.pictp_pl =
+			mt9t013_get_pict_pixels_pl();
+
+		if (copy_to_user((void *)argp,
+				&cdata,
+				sizeof(struct sensor_cfg_data_t)))
+			rc = -EFAULT;
+		break;
+
+	case CFG_GET_PICT_MAX_EXP_LC:
+		cdata.cfg.pict_max_exp_lc =
+			mt9t013_get_pict_max_exp_lc();
+
+		if (copy_to_user((void *)argp,
+				&cdata,
+				sizeof(struct sensor_cfg_data_t)))
+			rc = -EFAULT;
+		break;
+
+	case CFG_SET_FPS:
+	case CFG_SET_PICT_FPS:
+		rc = mt9t013_set_fps(&(cdata.cfg.fps));
+		break;
+
+	case CFG_SET_EXP_GAIN:
+		rc = mt9t013_write_exp_gain(cdata.cfg.exp_gain.gain,
+				cdata.cfg.exp_gain.line);
+		break;
+
+	case CFG_SET_PICT_EXP_GAIN:
+		rc = mt9t013_set_pict_exp_gain(cdata.cfg.exp_gain.gain,
+				cdata.cfg.exp_gain.line);
+		break;
+
+	case CFG_SET_MODE:
+		rc = mt9t013_set_sensor_mode(cdata.mode, cdata.rs);
+		break;
+
+	case CFG_PWR_DOWN:
+		rc = mt9t013_power_down();
+		break;
+
+	case CFG_MOVE_FOCUS:
+		rc = mt9t013_move_focus(cdata.cfg.focus.dir,
+				cdata.cfg.focus.steps);
+		break;
+
+	case CFG_SET_DEFAULT_FOCUS:
+		rc = mt9t013_set_default_focus(cdata.cfg.focus.steps);
+		break;
+
+	case CFG_GET_AF_MAX_STEPS:
+		cdata.max_steps = MT9T013_TOTAL_STEPS_NEAR_TO_FAR;
+		if (copy_to_user((void *)argp,
+				&cdata,
+				sizeof(struct sensor_cfg_data_t)))
+			rc = -EFAULT;
+		break;
+
+	case CFG_SET_EFFECT:
+	default:
+		rc = -EINVAL;
+		break;
+	}
 
 	up(&mt9t013_sem);
-
 	return rc;
 }
 
@@ -1391,6 +1363,7 @@ int mt9t013_sensor_release(void)
 
 	down(&mt9t013_sem);
 
+	mt9t013_poweroff_af();
 	mt9t013_power_down();
 
 	gpio_direction_output(mt9t013_ctrl->sensordata->sensor_reset,

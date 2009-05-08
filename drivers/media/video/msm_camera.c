@@ -68,6 +68,7 @@ static LIST_HEAD(msm_sensors);
 
 #define MSM_DRAIN_QUEUE_NOSYNC(sync, name) do {			\
 	struct msm_queue_cmd_t *qcmd = NULL;			\
+	CDBG("%s: draining queue "#name"\n", __func__);		\
 	while (!list_empty(&(sync)->name)) {			\
 		qcmd = list_first_entry(&(sync)->name,		\
 			struct msm_queue_cmd_t, list);		\
@@ -477,6 +478,7 @@ static struct msm_queue_cmd_t* __msm_control(struct msm_sync_t *sync,
 			rc = -ETIMEDOUT;
 		if (rc < 0) {
 			pr_err("msm_control: wait_event error %d\n", rc);
+#if 0
 			/* This is a bit scary.  If we time out too early, we
 			 * will free qcmd at the end of this function, and the
 			 * dsp may do the same when it does respond, so we
@@ -487,13 +489,14 @@ static struct msm_queue_cmd_t* __msm_control(struct msm_sync_t *sync,
 			spin_lock_irqsave(&sync->msg_event_q_lock, flags);
 			list_del_init(&qcmd->list);
 			spin_unlock_irqrestore(&sync->msg_event_q_lock, flags);
+#endif
 			return ERR_PTR(rc);
 		}
 	}
 
 	/* control command status is ready */
-	BUG_ON(list_empty(&sync->ctrl_status_q));
 	spin_lock_irqsave(&sync->ctrl_status_q_lock, flags);
+	BUG_ON(list_empty(&sync->ctrl_status_q));
 	qcmd = list_first_entry(&sync->ctrl_status_q,
 		struct msm_queue_cmd_t, list);
 	list_del_init(&qcmd->list);

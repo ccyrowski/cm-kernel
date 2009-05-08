@@ -208,7 +208,7 @@ static int32_t mt9p012_i2c_txdata(unsigned short saddr, unsigned char *txdata,
 static int32_t mt9p012_i2c_write_b(unsigned short saddr, unsigned short baddr,
 	unsigned short bdata)
 {
-	int32_t rc = -EFAULT;
+	int32_t rc = -EIO;
 	unsigned char buf[2];
 
 	memset(buf, 0, sizeof(buf));
@@ -226,7 +226,7 @@ static int32_t mt9p012_i2c_write_b(unsigned short saddr, unsigned short baddr,
 static int32_t mt9p012_i2c_write_w(unsigned short saddr, unsigned short waddr,
 	unsigned short wdata)
 {
-	int32_t rc = -EFAULT;
+	int32_t rc = -EIO;
 	unsigned char buf[4];
 
 	memset(buf, 0, sizeof(buf));
@@ -248,7 +248,7 @@ static int32_t mt9p012_i2c_write_w_table(
 	struct mt9p012_i2c_reg_conf *reg_conf_tbl, int num)
 {
 	int i;
-	int32_t rc = -EFAULT;
+	int32_t rc = -EIO;
 
 	for (i = 0; i < num; i++) {
 		rc = mt9p012_i2c_write_w(mt9p012_client->addr,
@@ -715,7 +715,7 @@ static int32_t mt9p012_setting(enum mt9p012_reg_update_t rupdate,
 	break; /* case REG_INIT: */
 
 	default:
-		rc = -EFAULT;
+		rc = -EINVAL;
 		break;
 	} /* switch (rupdate) */
 
@@ -1064,7 +1064,7 @@ static int32_t mt9p012_set_sensor_mode(int mode, int res)
 int mt9p012_sensor_config(void __user *argp)
 {
 	struct sensor_cfg_data_t cdata;
-	long   rc = 0;
+	int rc = 0;
 
 	if (copy_from_user(&cdata,
 			(void *)argp,
@@ -1077,7 +1077,7 @@ int mt9p012_sensor_config(void __user *argp)
 	switch (cdata.cfgtype) {
 	case CFG_GET_PICT_FPS:
 		mt9p012_get_pict_fps(cdata.cfg.gfps.prevfps,
-			&(cdata.cfg.gfps.pictfps));
+				&(cdata.cfg.gfps.pictfps));
 
 		if (copy_to_user((void *)argp, &cdata,
 				sizeof(struct sensor_cfg_data_t)))
@@ -1088,8 +1088,8 @@ int mt9p012_sensor_config(void __user *argp)
 		cdata.cfg.prevl_pf = mt9p012_get_prev_lines_pf();
 
 		if (copy_to_user((void *)argp,
-			&cdata,
-			sizeof(struct sensor_cfg_data_t)))
+				&cdata,
+				sizeof(struct sensor_cfg_data_t)))
 			rc = -EFAULT;
 		break;
 
@@ -1097,8 +1097,8 @@ int mt9p012_sensor_config(void __user *argp)
 		cdata.cfg.prevp_pl = mt9p012_get_prev_pixels_pl();
 
 		if (copy_to_user((void *)argp,
-			&cdata,
-			sizeof(struct sensor_cfg_data_t)))
+				&cdata,
+				sizeof(struct sensor_cfg_data_t)))
 			rc = -EFAULT;
 		break;
 
@@ -1106,8 +1106,8 @@ int mt9p012_sensor_config(void __user *argp)
 		cdata.cfg.pictl_pf = mt9p012_get_pict_lines_pf();
 
 		if (copy_to_user((void *)argp,
-			&cdata,
-			sizeof(struct sensor_cfg_data_t)))
+				&cdata,
+				sizeof(struct sensor_cfg_data_t)))
 			rc = -EFAULT;
 		break;
 
@@ -1115,8 +1115,8 @@ int mt9p012_sensor_config(void __user *argp)
 		cdata.cfg.pictp_pl = mt9p012_get_pict_pixels_pl();
 
 		if (copy_to_user((void *)argp,
-			&cdata,
-			sizeof(struct sensor_cfg_data_t)))
+				&cdata,
+				sizeof(struct sensor_cfg_data_t)))
 			rc = -EFAULT;
 		break;
 
@@ -1125,8 +1125,8 @@ int mt9p012_sensor_config(void __user *argp)
 			mt9p012_get_pict_max_exp_lc();
 
 		if (copy_to_user((void *)argp,
-			&cdata,
-			sizeof(struct sensor_cfg_data_t)))
+				&cdata,
+				sizeof(struct sensor_cfg_data_t)))
 			rc = -EFAULT;
 		break;
 
@@ -1136,23 +1136,18 @@ int mt9p012_sensor_config(void __user *argp)
 		break;
 
 	case CFG_SET_EXP_GAIN:
-		rc =
-			mt9p012_write_exp_gain(cdata.cfg.exp_gain.gain,
+		rc = mt9p012_write_exp_gain(cdata.cfg.exp_gain.gain,
 				cdata.cfg.exp_gain.line);
 		break;
 
 	case CFG_SET_PICT_EXP_GAIN:
 		CDBG("Line:%d CFG_SET_PICT_EXP_GAIN \n", __LINE__);
-		rc =
-			mt9p012_set_pict_exp_gain(
-				cdata.cfg.exp_gain.gain,
+		rc = mt9p012_set_pict_exp_gain(cdata.cfg.exp_gain.gain,
 				cdata.cfg.exp_gain.line);
 		break;
 
 	case CFG_SET_MODE:
-		rc =
-			mt9p012_set_sensor_mode(
-			cdata.mode, cdata.rs);
+		rc = mt9p012_set_sensor_mode(cdata.mode, cdata.rs);
 		break;
 
 	case CFG_PWR_DOWN:
@@ -1161,22 +1156,13 @@ int mt9p012_sensor_config(void __user *argp)
 
 	case CFG_MOVE_FOCUS:
 		CDBG("mt9p012_ioctl: CFG_MOVE_FOCUS: cdata.cfg.focus.dir=%d cdata.cfg.focus.steps=%d\n",
-			cdata.cfg.focus.dir, cdata.cfg.focus.steps);
-		rc =
-			mt9p012_move_focus(
-			cdata.cfg.focus.dir,
-			cdata.cfg.focus.steps);
+				cdata.cfg.focus.dir, cdata.cfg.focus.steps);
+		rc = mt9p012_move_focus(cdata.cfg.focus.dir,
+					cdata.cfg.focus.steps);
 		break;
 
 	case CFG_SET_DEFAULT_FOCUS:
-		rc =
-			mt9p012_set_default_focus();
-
-		break;
-
-	case CFG_SET_EFFECT:
-		rc =
-			mt9p012_set_default_focus();
+		rc = mt9p012_set_default_focus();
 		break;
 
 	case CFG_SET_LENS_SHADING:
@@ -1184,8 +1170,17 @@ int mt9p012_sensor_config(void __user *argp)
 		rc = mt9p012_lens_shading_enable(cdata.cfg.lens_shading);
 		break;
 
+	case CFG_GET_AF_MAX_STEPS:
+		cdata.max_steps = MT9P012_STEPS_NEAR_TO_CLOSEST_INF;
+		if (copy_to_user((void *)argp,
+				&cdata,
+				sizeof(struct sensor_cfg_data_t)))
+			rc = -EFAULT;
+		break;
+
+	case CFG_SET_EFFECT:
 	default:
-		rc = -EFAULT;
+		rc = -EINVAL;
 		break;
 	}
 

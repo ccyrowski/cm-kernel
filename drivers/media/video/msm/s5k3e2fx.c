@@ -363,7 +363,7 @@ static int32_t s5k3e2fx_i2c_txdata(unsigned short saddr,
 static int32_t s5k3e2fx_i2c_write_b(unsigned short saddr, unsigned short waddr,
 	unsigned char bdata)
 {
-	int32_t rc = -EFAULT;
+	int32_t rc = -EIO;
 	unsigned char buf[4];
 
 	memset(buf, 0, sizeof(buf));
@@ -384,18 +384,13 @@ static int32_t s5k3e2fx_i2c_write_table(
 	struct s5k3e2fx_i2c_reg_conf *reg_cfg_tbl, int num)
 {
 	int i;
-	int32_t rc = -EFAULT;
-CDBG("STEPHENL s5k3e2fx_i2c_write_table starts\n");
+	int32_t rc = -EIO;
 	for (i = 0; i < num; i++) {
-CDBG("STEPHENL %d: waddr = 0x%x, bdata = 0x%x\n", i, (int) reg_cfg_tbl->waddr, (int) reg_cfg_tbl->bdata);
-		rc = s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,
-			reg_cfg_tbl->waddr, reg_cfg_tbl->bdata);
 		if (rc < 0)
 			break;
 		reg_cfg_tbl++;
 	}
 
-CDBG("STEPHENL s5k3e2fx_i2c_write_table ends\n");
 	return rc;
 }
 
@@ -447,21 +442,17 @@ static int s5k3e2fx_probe_init_sensor(const struct msm_camera_sensor_info *data)
 
 	CDBG("s5k3e2fx_sensor_init(): reseting sensor.\n");
 
-CDBG("STEPHENL: %s %s:%d %d\n", __FILE__, __func__, __LINE__, s5k3e2fx_client->addr);
 	rc = s5k3e2fx_i2c_read_w(s5k3e2fx_client->addr,
 		S5K3E2FX_REG_MODEL_ID, &chipid);
-CDBG("STEPHENL: %s %s:%d\n", __FILE__, __func__, __LINE__);
 	if (rc < 0)
 		goto init_probe_fail;
 
-CDBG("STEPHENL: %s %s:%d\n", __FILE__, __func__, __LINE__);
 	if (chipid != S5K3E2FX_MODEL_ID) {
 		CDBG("S5K3E2FX wrong model_id = 0x%x\n", chipid);
 		rc = -ENODEV;
 		goto init_probe_fail;
 	}
 
-CDBG("STEPHENL: %s %s:%d\n", __FILE__, __func__, __LINE__);
 	goto init_probe_done;
 
 init_probe_fail:
@@ -703,7 +694,7 @@ static int32_t s5k3e2fx_setting(enum msm_s_reg_update_t rupdate,
 	break; /* case REG_INIT: */
 
 	default:
-		rc = -EFAULT;
+		rc = -EINVAL;
 		break;
 	} /* switch (rupdate) */
 
@@ -714,7 +705,6 @@ static int s5k3e2fx_sensor_open_init(const struct msm_camera_sensor_info *data)
 {
 	int32_t  rc;
 
-CDBG("STEPHENL: %s %s:%d\n", __FILE__, __func__, __LINE__);
 	s5k3e2fx_ctrl = kzalloc(sizeof(struct s5k3e2fx_ctrl_t), GFP_KERNEL);
 	if (!s5k3e2fx_ctrl) {
 		CDBG("s5k3e2fx_init failed!\n");
@@ -1173,8 +1163,8 @@ static int s5k3e2fx_sensor_config(void __user *argp)
 		cdata.cfg.prevl_pf = s5k3e2fx_get_prev_lines_pf();
 
 		if (copy_to_user((void *)argp,
-			&cdata,
-			sizeof(struct sensor_cfg_data_t)))
+				&cdata,
+				sizeof(struct sensor_cfg_data_t)))
 			rc = -EFAULT;
 		break;
 
@@ -1182,8 +1172,8 @@ static int s5k3e2fx_sensor_config(void __user *argp)
 		cdata.cfg.prevp_pl = s5k3e2fx_get_prev_pixels_pl();
 
 		if (copy_to_user((void *)argp,
-			&cdata,
-			sizeof(struct sensor_cfg_data_t)))
+				&cdata,
+				sizeof(struct sensor_cfg_data_t)))
 			rc = -EFAULT;
 		break;
 
@@ -1191,8 +1181,8 @@ static int s5k3e2fx_sensor_config(void __user *argp)
 		cdata.cfg.pictl_pf = s5k3e2fx_get_pict_lines_pf();
 
 		if (copy_to_user((void *)argp,
-			&cdata,
-			sizeof(struct sensor_cfg_data_t)))
+				&cdata,
+				sizeof(struct sensor_cfg_data_t)))
 			rc = -EFAULT;
 		break;
 
@@ -1200,8 +1190,8 @@ static int s5k3e2fx_sensor_config(void __user *argp)
 		cdata.cfg.pictp_pl = s5k3e2fx_get_pict_pixels_pl();
 
 		if (copy_to_user((void *)argp,
-			&cdata,
-			sizeof(struct sensor_cfg_data_t)))
+				&cdata,
+				sizeof(struct sensor_cfg_data_t)))
 			rc = -EFAULT;
 		break;
 
@@ -1210,8 +1200,8 @@ static int s5k3e2fx_sensor_config(void __user *argp)
 			s5k3e2fx_get_pict_max_exp_lc();
 
 		if (copy_to_user((void *)argp,
-			&cdata,
-			sizeof(struct sensor_cfg_data_t)))
+				&cdata,
+				sizeof(struct sensor_cfg_data_t)))
 			rc = -EFAULT;
 		break;
 
@@ -1256,14 +1246,11 @@ static int s5k3e2fx_sensor_config(void __user *argp)
 			s5k3e2fx_set_default_focus();
 		break;
 
+	case CFG_GET_AF_MAX_STEPS:
 	case CFG_SET_EFFECT:
-		rc =
-			s5k3e2fx_set_default_focus();
-		break;
-
 	case CFG_SET_LENS_SHADING:
 	default:
-		rc = -EFAULT;
+		rc = -EINVAL;
 		break;
 	}
 
@@ -1276,7 +1263,6 @@ static int s5k3e2fx_sensor_probe(const struct msm_camera_sensor_info *info,
 {
 	int rc = 0;
 
-CDBG("STEPHENL: %s %s:%d\n", __FILE__, __func__, __LINE__);
 	rc = i2c_add_driver(&s5k3e2fx_i2c_driver);
 	if (rc < 0 || s5k3e2fx_client == NULL) {
 		rc = -ENOTSUPP;
@@ -1286,18 +1272,15 @@ CDBG("STEPHENL: %s %s:%d\n", __FILE__, __func__, __LINE__);
 	msm_camio_clk_rate_set(24000000);
 	mdelay(20);
 
-CDBG("STEPHENL: %s %s:%d\n", __FILE__, __func__, __LINE__);
 	rc = s5k3e2fx_probe_init_sensor(info);
 	if (rc < 0)
 		goto probe_fail;
 
-CDBG("STEPHENL: %s %s:%d\n", __FILE__, __func__, __LINE__);
 	s->s_init = s5k3e2fx_sensor_open_init;
 	s->s_release = s5k3e2fx_sensor_release;
 	s->s_config  = s5k3e2fx_sensor_config;
 	s5k3e2fx_probe_init_done(info);
 
-CDBG("STEPHENL: %s %s:%d\n", __FILE__, __func__, __LINE__);
 	return rc;
 
 probe_fail:
