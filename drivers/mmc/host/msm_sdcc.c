@@ -845,6 +845,7 @@ static void msmsdcc_enable_sdio_irq(struct mmc_host *mmc, int enable)
 			status |= MCI_SDIOINTOPERMASK;
 		else
 			status &= ~MCI_SDIOINTOPERMASK;
+		host->saved_irq0mask = status;
 		writel(status, host->base + MMCIMASK0);
 	}
 	spin_unlock_irqrestore(&host->lock, flags);
@@ -1133,10 +1134,10 @@ msmsdcc_probe(struct platform_device *pdev)
 	mmc->max_seg_size = mmc->max_req_size;
 
 	writel(0, host->base + MMCIMASK0);
-	host->saved_irq0mask = 0;
 	writel(0x5e007ff, host->base + MMCICLEAR); /* Add: 1 << 25 */
 
 	writel(MCI_IRQENABLE, host->base + MMCIMASK0);
+	host->saved_irq0mask = MCI_IRQENABLE;
 
 	/*
 	 * Setup card detect change
@@ -1261,7 +1262,6 @@ msmsdcc_suspend(struct platform_device *dev, pm_message_t state)
 		if (mmc->card && mmc->card->type != MMC_TYPE_SDIO)
 			rc = mmc_suspend_host(mmc, state);
 		if (!rc) {
-			host->saved_irq0mask = readl(host->base + MMCIMASK0);
 			writel(0, host->base + MMCIMASK0);
 
 			if (host->clks_on) {
