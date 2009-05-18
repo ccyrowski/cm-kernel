@@ -25,8 +25,8 @@
 
 #define MSM_MAX_CAMERA_SENSORS 5
 
-#define ERR_USER_COPY(to) pr_err("%s: copy %s user\n", \
-				__func__, ((to) ? "to" : "from"))
+#define ERR_USER_COPY(to) pr_err("%s(%d): copy %s user\n", \
+				__func__, __LINE__, ((to) ? "to" : "from"))
 #define ERR_COPY_FROM_USER() ERR_USER_COPY(0)
 #define ERR_COPY_TO_USER() ERR_USER_COPY(1)
 
@@ -455,6 +455,7 @@ static int msm_disable_vfe(struct msm_sync_t *sync, void __user *arg)
 }
 
 static struct msm_queue_cmd_t* __msm_control(struct msm_sync_t *sync,
+		struct msm_control_device_queue_t *queue,
 		struct msm_queue_cmd_t *qcmd,
 		int timeout)
 {
@@ -468,10 +469,11 @@ static struct msm_queue_cmd_t* __msm_control(struct msm_sync_t *sync,
 	spin_unlock_irqrestore(&sync->msg_event_q_lock, flags);
 
 	/* wait for config status */
-	rc = wait_event_interruptible(
-			sync->ctrl_status_wait,
-			!list_empty_careful(&sync->ctrl_status_q));
-	if (list_empty_careful(&sync->ctrl_status_q)) {
+	rc = wait_event_interruptible_timeout(
+			queue->ctrl_status_wait,
+			!list_empty_careful(&queue->ctrl_status_q),
+			timeout);
+	if (list_empty_careful(&queue->ctrl_status_q)) {
 		if (!rc)
 			rc = -ETIMEDOUT;
 		if (rc < 0) {
@@ -493,20 +495,22 @@ static struct msm_queue_cmd_t* __msm_control(struct msm_sync_t *sync,
 	}
 
 	/* control command status is ready */
-	spin_lock_irqsave(&sync->ctrl_status_q_lock, flags);
-	BUG_ON(list_empty(&sync->ctrl_status_q));
-	qcmd = list_first_entry(&sync->ctrl_status_q,
-		struct msm_queue_cmd_t, list);
+	spin_lock_irqsave(&queue->ctrl_status_q_lock, flags);
+	BUG_ON(list_empty(&queue->ctrl_status_q));
+	qcmd = list_first_entry(&queue->ctrl_status_q,
+			struct msm_queue_cmd_t, list);
 	list_del_init(&qcmd->list);
-	spin_unlock_irqrestore(&sync->ctrl_status_q_lock, flags);
+	spin_unlock_irqrestore(&queue->ctrl_status_q_lock, flags);
 
 	return qcmd;
 }
 
-static int msm_control(struct msm_sync_t *sync, void __user *arg)
+static int msm_control(struct msm_control_device_t *ctrl_pmsm,
+			void __user *arg)
 {
 	int rc = 0;
 
+	struct msm_sync_t *sync = ctrl_pmsm->pmsm->sync;
 	struct msm_ctrl_cmd_t udata, *ctrlcmd;
 	struct msm_queue_cmd_t *qcmd = NULL, *qcmd_temp;
 
@@ -539,7 +543,9 @@ static int msm_control(struct msm_sync_t *sync, void __user *arg)
 		}
 	}
 
-	qcmd_temp = __msm_control(sync, qcmd, udata.timeout_ms);
+	qcmd_temp = __msm_control(sync, &ctrl_pmsm->ctrl_q,
+					qcmd, MAX_SCHEDULE_TIMEOUT);
+
 	if (IS_ERR(qcmd_temp)) {
 		rc = PTR_ERR(qcmd_temp);
 		goto end;
@@ -549,7 +555,6 @@ static int msm_control(struct msm_sync_t *sync, void __user *arg)
 	if (qcmd->command) {
 		void __user *to = udata.value;
 		udata = *(struct msm_ctrl_cmd_t *)qcmd->command;
-		CDBG("msm_control: length = %d\n", udata.length);
 		if (udata.length > 0) {
 			if (copy_to_user(to,
 					 udata.value,
@@ -573,7 +578,7 @@ end:
 	/* Note: if we get here as a result of an error, we will free the
 	 * qcmd that we kmalloc() in this function.  When we come here as
 	 * a result of a successful completion, we are freeing the qcmd that
-	 * we dequeued from sync->ctrl_status_q.
+	 * we dequeued from queue->ctrl_status_q.
 	 */
 	if (qcmd)
 		kfree(qcmd);
@@ -741,6 +746,7 @@ static int msm_get_stats(struct msm_sync_t *sync, void __user *arg)
 		/* what to control */
 		se.ctrl_cmd.type = ctrl->type;
 		se.ctrl_cmd.length = ctrl->length;
+		se.ctrl_cmd.resp_fd = ctrl->resp_fd;
 		break;
 
 	case MSM_CAM_Q_V4L2_REQ:
@@ -785,7 +791,8 @@ failure:
 	return rc;
 }
 
-static int msm_ctrl_cmd_done(struct msm_sync_t *sync, void __user *arg)
+static int msm_ctrl_cmd_done(struct msm_control_device_t *ctrl_pmsm,
+		void __user *arg)
 {
 	unsigned long flags;
 	int rc = 0;
@@ -826,10 +833,10 @@ end:
 	CDBG("msm_ctrl_cmd_done: end rc = %d\n", rc);
 	if (rc == 0) {
 		/* wake up control thread */
-		spin_lock_irqsave(&sync->ctrl_status_q_lock, flags);
-		list_add_tail(&qcmd->list, &sync->ctrl_status_q);
-		wake_up(&sync->ctrl_status_wait);
-		spin_unlock_irqrestore(&sync->ctrl_status_q_lock, flags);
+		spin_lock_irqsave(&ctrl_pmsm->ctrl_q.ctrl_status_q_lock, flags);
+		list_add_tail(&qcmd->list, &ctrl_pmsm->ctrl_q.ctrl_status_q);
+		wake_up(&ctrl_pmsm->ctrl_q.ctrl_status_wait);
+		spin_unlock_irqrestore(&ctrl_pmsm->ctrl_q.ctrl_status_q_lock, flags);
 	}
 
 	return rc;
@@ -1389,7 +1396,6 @@ static long msm_ioctl_config(struct file *filep, unsigned int cmd,
 	struct msm_device_t *pmsm = filep->private_data;
 
 	CDBG("msm_ioctl_config cmd = %d\n", _IOC_NR(cmd));
-	mutex_lock(&pmsm->lock);
 
 	switch (cmd) {
 	case MSM_CAM_IOCTL_GET_SENSOR_INFO:
@@ -1417,11 +1423,6 @@ static long msm_ioctl_config(struct file *filep, unsigned int cmd,
 		/* This request comes from control thread:
 		 * disable either QCAMTASK or VFETASK */
 		rc = msm_disable_vfe(pmsm->sync, argp);
-		break;
-
-	case MSM_CAM_IOCTL_CTRL_CMD_DONE:
-		/* Config thread notifies the result of contrl command */
-		rc = msm_ctrl_cmd_done(pmsm->sync, argp);
 		break;
 
 	case MSM_CAM_IOCTL_VFE_APPS_RESET:
@@ -1476,7 +1477,6 @@ static long msm_ioctl_config(struct file *filep, unsigned int cmd,
 		break;
 	}
 
-	mutex_unlock(&pmsm->lock);
 	CDBG("msm_ioctl_config cmd = %d DONE\n", _IOC_NR(cmd));
 	return rc;
 }
@@ -1490,7 +1490,6 @@ static long msm_ioctl_frame(struct file *filep, unsigned int cmd,
 	void __user *argp = (void __user *)arg;
 	struct msm_device_t *pmsm = filep->private_data;
 
-	mutex_lock(&pmsm->lock);
 
 	switch (cmd) {
 	case MSM_CAM_IOCTL_GETFRAME:
@@ -1508,7 +1507,6 @@ static long msm_ioctl_frame(struct file *filep, unsigned int cmd,
 		break;
 	}
 
-	mutex_unlock(&pmsm->lock);
 	return rc;
 }
 
@@ -1518,15 +1516,20 @@ static long msm_ioctl_control(struct file *filep, unsigned int cmd,
 {
 	int rc = -EINVAL;
 	void __user *argp = (void __user *)arg;
-	struct msm_device_t *pmsm = filep->private_data;
-
-	mutex_lock(&pmsm->lock);
+	struct msm_control_device_t *ctrl_pmsm = filep->private_data;
+	struct msm_device_t *pmsm = ctrl_pmsm->pmsm;
 
 	switch (cmd) {
 	case MSM_CAM_IOCTL_CTRL_COMMAND:
 		/* Coming from control thread, may need to wait for
 		* command status */
-		rc = msm_control(pmsm->sync, argp);
+		rc = msm_control(ctrl_pmsm, argp);
+		break;
+	case MSM_CAM_IOCTL_CTRL_CMD_DONE:
+		/* Config thread calls the control thread to notify it
+		 * of the result of a MSM_CAM_IOCTL_CTRL_COMMAND.
+		 */
+		rc = msm_ctrl_cmd_done(ctrl_pmsm, argp);
 		break;
 	case MSM_CAM_IOCTL_GET_PICTURE:
 		rc = msm_get_pic(pmsm->sync, argp);
@@ -1536,7 +1539,6 @@ static long msm_ioctl_control(struct file *filep, unsigned int cmd,
 		break;
 	}
 
-	mutex_unlock(&pmsm->lock);
 	return rc;
 }
 
@@ -1547,7 +1549,6 @@ static int __msm_release(struct msm_sync_t *sync)
 	struct hlist_node *n;
 
 	mutex_lock(&sync->lock);
-
 	if (sync->opencnt)
 		sync->opencnt--;
 
@@ -1576,7 +1577,6 @@ static int __msm_release(struct msm_sync_t *sync)
 			kfree(region);
 		}
 
-		MSM_DRAIN_QUEUE(sync, ctrl_status_q);
 		MSM_DRAIN_QUEUE(sync, msg_event_q);
 		MSM_DRAIN_QUEUE(sync, prev_frame_q);
 		MSM_DRAIN_QUEUE(sync, pict_frame_q);
@@ -1592,36 +1592,28 @@ static int __msm_release(struct msm_sync_t *sync)
 	return 0;
 }
 
-static int msm_release_common(struct msm_device_t *pmsm, struct file *filep)
-{
-	int rc = -EIO;
-	if (pmsm->opened) {
-		rc = __msm_release(pmsm->sync);
-		pmsm->opened = rc < 0;
-	} else
-		pr_err("msm_release is already closed.\n");
-	return rc;
-}
-
 static int msm_release_config(struct inode *node, struct file *filep)
 {
 	int rc;
 	struct msm_device_t *pmsm = filep->private_data;
-	mutex_lock(&pmsm->lock);
-	rc = msm_release_common(pmsm, filep);
-	mutex_unlock(&pmsm->lock);
+	printk("msm_camera: RELEASE %s\n", filep->f_path.dentry->d_name.name);
+	rc = __msm_release(pmsm->sync);
+	atomic_set(&pmsm->opened, 0);
 	return rc;
 }
 
 static int msm_release_control(struct inode *node, struct file *filep)
 {
 	int rc;
-	struct msm_device_t *pmsm = filep->private_data;
-	mutex_lock(&pmsm->lock);
-	rc = msm_release_common(pmsm, filep);
-	if (!rc)
+	struct msm_control_device_t *ctrl_pmsm = filep->private_data;
+	struct msm_device_t *pmsm = ctrl_pmsm->pmsm;
+	printk("msm_camera: RELEASE %s\n", filep->f_path.dentry->d_name.name);
+	rc = __msm_release(pmsm->sync);
+	if (!rc) {
+		MSM_DRAIN_QUEUE(&ctrl_pmsm->ctrl_q, ctrl_status_q);
 		MSM_DRAIN_QUEUE(pmsm->sync, pict_frame_q);
-	mutex_unlock(&pmsm->lock);
+	}
+	kfree(ctrl_pmsm);
 	return rc;
 }
 
@@ -1629,11 +1621,12 @@ static int msm_release_frame(struct inode *node, struct file *filep)
 {
 	int rc;
 	struct msm_device_t *pmsm = filep->private_data;
-	mutex_lock(&pmsm->lock);
-	rc = msm_release_common(pmsm, filep);
-	if (!rc)
+	printk("msm_camera: RELEASE %s\n", filep->f_path.dentry->d_name.name);
+	rc = __msm_release(pmsm->sync);
+	if (!rc) {
 		MSM_DRAIN_QUEUE(pmsm->sync, prev_frame_q);
-	mutex_unlock(&pmsm->lock);
+		atomic_set(&pmsm->opened, 0);
+	}
 	return rc;
 }
 
@@ -1832,33 +1825,61 @@ msm_open_done:
 	return rc;
 }
 
-static int msm_open(struct inode *inode, struct file *filep)
+static int msm_open_common(struct inode *inode, struct file *filep,
+			   int once)
 {
 	int rc;
 	struct msm_device_t *pmsm =
 		container_of(inode->i_cdev, struct msm_device_t, cdev);
-	mutex_lock(&pmsm->lock);
-	if (pmsm->opened) {
-		pr_err("%s: already opened\n", __func__);
-		rc = -EBUSY;
-		goto done;
+
+	CDBG("msm_camera: open %s\n", filep->f_path.dentry->d_name.name);
+
+	if (atomic_cmpxchg(&pmsm->opened, 0, 1) && once) {
+		pr_err("msm_camera: %s is already opened.\n",
+			filep->f_path.dentry->d_name.name);
+		return -EBUSY;
 	}
 
 	rc = nonseekable_open(inode, filep);
 	if (rc < 0) {
 		pr_err("msm_open: nonseekable_open error %d\n", rc);
-		goto done;
+		return rc;
 	}
 
 	rc = __msm_open(pmsm->sync, MSM_APPS_ID_PROP);
 	if (rc < 0)
-		goto done;
+		return rc;
 
 	filep->private_data = pmsm;
-	pmsm->opened = rc >= 0;
 
-done:
-	mutex_unlock(&pmsm->lock);
+	CDBG("msm_open() open: rc = %d\n", rc);
+	return rc;
+}
+
+static int msm_open(struct inode *inode, struct file *filep)
+{
+	return msm_open_common(inode, filep, 1);
+}
+
+static int msm_open_control(struct inode *inode, struct file *filep)
+{
+	int rc;
+
+	struct msm_control_device_t *ctrl_pmsm =
+		kmalloc(sizeof(struct msm_control_device_t), GFP_KERNEL);
+	if (!ctrl_pmsm)
+		return -ENOMEM;
+
+	rc = msm_open_common(inode, filep, 0);
+	if (rc < 0)
+		return rc;
+
+	ctrl_pmsm->pmsm = filep->private_data;
+	filep->private_data = ctrl_pmsm;
+	spin_lock_init(&ctrl_pmsm->ctrl_q.ctrl_status_q_lock);
+	INIT_LIST_HEAD(&ctrl_pmsm->ctrl_q.ctrl_status_q);
+	init_waitqueue_head(&ctrl_pmsm->ctrl_q.ctrl_status_wait);
+
 	CDBG("msm_open() open: rc = %d\n", rc);
 	return rc;
 }
@@ -1870,6 +1891,7 @@ static int __msm_v4l2_control(struct msm_sync_t *sync,
 
 	struct msm_queue_cmd_t *qcmd = NULL, *rcmd = NULL;
 	struct msm_ctrl_cmd_t *ctrl;
+	struct msm_control_device_queue_t FIXME;
 
 	/* wake up config thread, 4 is for V4L2 application */
 	qcmd = kmalloc(sizeof(struct msm_queue_cmd_t), GFP_KERNEL);
@@ -1881,7 +1903,7 @@ static int __msm_v4l2_control(struct msm_sync_t *sync,
 	qcmd->type = MSM_CAM_Q_V4L2_REQ;
 	qcmd->command = out;
 
-	rcmd = __msm_control(sync, qcmd, out->timeout_ms);
+	rcmd = __msm_control(sync, &FIXME, qcmd, out->timeout_ms);
 	if (IS_ERR(rcmd)) {
 		rc = PTR_ERR(rcmd);
 		goto end;
@@ -1907,7 +1929,7 @@ static const struct file_operations msm_fops_config = {
 
 static const struct file_operations msm_fops_control = {
 	.owner = THIS_MODULE,
-	.open = msm_open,
+	.open = msm_open_control,
 	.unlocked_ioctl = msm_ioctl_control,
 	.release = msm_release_control,
 };
@@ -2007,10 +2029,6 @@ static int msm_sync_init(struct msm_sync_t *sync,
 	INIT_LIST_HEAD(&sync->pict_frame_q);
 	init_waitqueue_head(&sync->pict_frame_wait);
 
-	spin_lock_init(&sync->ctrl_status_q_lock);
-	INIT_LIST_HEAD(&sync->ctrl_status_q);
-	init_waitqueue_head(&sync->ctrl_status_wait);
-
 	wake_lock_init(&sync->wake_lock, WAKE_LOCK_IDLE, "msm_camera");
 
 	rc = msm_camio_probe_on(pdev);
@@ -2076,12 +2094,13 @@ static int msm_device_init(struct msm_device_t *pmsm,
 		return rc;
 	}
 
+	atomic_set(&pmsm[0].opened, 0);
+	atomic_set(&pmsm[1].opened, 0);
+	atomic_set(&pmsm[2].opened, 0);
+
 	pmsm[0].sync = sync;
-	mutex_init(&pmsm[0].lock);
 	pmsm[1].sync = sync;
-	mutex_init(&pmsm[1].lock);
 	pmsm[2].sync = sync;
-	mutex_init(&pmsm[2].lock);
 
 	return rc;
 }

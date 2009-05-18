@@ -29,10 +29,10 @@
 #define NUM_AF_STAT_OUTPUT_BUFFERS      3
 
 enum msm_queue_t {
-	MSM_CAM_Q_CTRL,
-	MSM_CAM_Q_VFE_EVT,
-	MSM_CAM_Q_VFE_MSG,
-	MSM_CAM_Q_V4L2_REQ,
+	MSM_CAM_Q_CTRL,     /* control command or control command status */
+	MSM_CAM_Q_VFE_EVT,  /* adsp event */
+	MSM_CAM_Q_VFE_MSG,  /* adsp message */
+	MSM_CAM_Q_V4L2_REQ, /* v4l2 request */
 };
 
 enum vfe_resp_msg_t {
@@ -85,25 +85,29 @@ struct msm_sync_t {
 	struct hlist_head frame; /* most-frequently accessed */
 	struct hlist_head stats;
 
-	/* The following queues are accessed from both process and interrupt
-	 * context.
+	/* The message queue is used by the control thread to send commands
+	 * to the config thread, and also by the DSP to send messages to the
+	 * config thread.  Thus it is the only queue that is accessed from
+	 * both interrupt and process context.
 	 */
 	spinlock_t msg_event_q_lock;
 	struct list_head msg_event_q;
 	wait_queue_head_t msg_event_wait;
 
+	/* This queue contains preview frames. It is accessed by the DSP (in
+	 * in interrupt context, and by the frame thread.
+	 */
 	spinlock_t prev_frame_q_lock;
 	struct list_head prev_frame_q;
 	wait_queue_head_t prev_frame_wait;
 	int unblock_poll_frame;
 
+	/* This queue contains snapshot frames.  It is accessed by the DSP (in
+	 * interrupt context, and by the control thread.
+	 */
 	spinlock_t pict_frame_q_lock;
 	struct list_head pict_frame_q;
 	wait_queue_head_t pict_frame_wait;
-
-	spinlock_t ctrl_status_q_lock;
-	struct list_head ctrl_status_q;
-	wait_queue_head_t ctrl_status_wait;
 
 	struct msm_camera_sensor_info *sdata;
 	struct msm_camvfe_fn_t vfefn;
@@ -126,22 +130,32 @@ struct msm_sync_t {
 
 struct msm_device_t {
 	struct msm_sync_t *sync; /* most-frequently accessed */
-	struct mutex lock;
-
 	struct device *device;
 	struct cdev cdev;
-	int opened;
+	/* opened is meaningful only for the config and frame nodes,
+	 * which may be opened only once.
+	 */
+	atomic_t opened;
+};
+
+struct msm_control_device_queue_t {
+	spinlock_t ctrl_status_q_lock;
+	struct list_head ctrl_status_q;
+	wait_queue_head_t ctrl_status_wait;
+};
+
+struct msm_control_device_t {
+	struct msm_device_t *pmsm;
+
+	/* This queue used by the config thread to send responses back to the
+	 * control thread.  It is accessed only from a process context.
+	 */
+	struct msm_control_device_queue_t ctrl_q;
 };
 
 /* this structure is used in kernel */
 struct msm_queue_cmd_t {
 	struct list_head list;
-
-	/* 1 - control command or control command status;
-	 * 2 - adsp event;
-	 * 3 - adsp message;
-	 * 4 - v4l2 request;
-	 */
 	enum msm_queue_t type;
 	void *command;
 };

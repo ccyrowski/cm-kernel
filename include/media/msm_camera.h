@@ -102,17 +102,18 @@
  *                     control status (from config thread);
  */
 struct msm_ctrl_cmd_t {
-	int timeout_ms;
 	uint16_t type;
 	uint16_t length;
 	void *value;
 	uint16_t status;
+	uint32_t timeout_ms;
+	int resp_fd; /* FIXME: to be used by the kernel, pass-through for now */
 };
 
 struct msm_vfe_evt_msg_t {
-	unsigned short type;	/* 1 == event (RPC), 0 == message (adsp) */
+	unsigned short type; /* 1 == event (RPC), 0 == message (adsp) */
 	unsigned short msg_id;
-	unsigned int len;	/* size in, number of bytes out */
+	unsigned int len; /* size in, number of bytes out */
 	void *data;
 };
 
