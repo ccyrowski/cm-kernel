@@ -1378,14 +1378,12 @@ static void get_scan_ratio(struct zone *zone, struct scan_control *sc,
 	unsigned long ap, fp;
 	struct zone_reclaim_stat *reclaim_stat = get_reclaim_stat(zone, sc);
 
-#if 0
 	/* If we have no swap space, do not bother scanning anon pages. */
 	if (nr_swap_pages <= 0) {
 		percent[0] = 0;
 		percent[1] = 100;
 		return;
 	}
-#endif
 
 	anon  = zone_nr_pages(zone, sc, LRU_ACTIVE_ANON) +
 		zone_nr_pages(zone, sc, LRU_INACTIVE_ANON);
