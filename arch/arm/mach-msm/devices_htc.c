@@ -97,11 +97,11 @@ static char *usb_functions[] = {
 static struct msm_hsusb_product usb_products[] = {
 	{
 		.product_id	= 0x0c01,
-		.functions	= 0x00000041, /* usb_mass_storage */
+		.functions	= 0x00000001, /* usb_mass_storage */
 	},
 	{
 		.product_id	= 0x0c02,
-		.functions	= 0x00000043, /* usb_mass_storage + adb */
+		.functions	= 0x00000003, /* usb_mass_storage + adb */
 	},
 };
 #endif
