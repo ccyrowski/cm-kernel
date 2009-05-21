@@ -20,7 +20,7 @@
 	_IOW(MSM_CAM_IOCTL_MAGIC, 3, unsigned)
 
 #define MSM_CAM_IOCTL_CTRL_COMMAND \
-	_IOW(MSM_CAM_IOCTL_MAGIC, 4, struct msm_ctrl_cmt_t *)
+	_IOW(MSM_CAM_IOCTL_MAGIC, 4, struct msm_ctrl_cmd_t *)
 
 #define MSM_CAM_IOCTL_CONFIG_VFE  \
 	_IOW(MSM_CAM_IOCTL_MAGIC, 5, struct msm_camera_vfe_cfg_cmd_t *)
@@ -82,6 +82,9 @@
 
 #define MSM_CAM_IOCTL_UNBLOCK_POLL_FRAME \
 	_IO(MSM_CAM_IOCTL_MAGIC, 23)
+
+#define MSM_CAM_IOCTL_CTRL_COMMAND_2 \
+	_IOW(MSM_CAM_IOCTL_MAGIC, 24, struct msm_ctrl_cmd_t *)
 
 #define MAX_SENSOR_NUM  3
 #define MAX_SENSOR_NAME 32

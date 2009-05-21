@@ -468,6 +468,9 @@ static struct msm_queue_cmd_t* __msm_control(struct msm_sync_t *sync,
 	wake_up(&sync->msg_event_wait);
 	spin_unlock_irqrestore(&sync->msg_event_q_lock, flags);
 
+	if (!queue)
+		return NULL;
+
 	/* wait for config status */
 	rc = wait_event_interruptible_timeout(
 			queue->ctrl_status_wait,
@@ -506,6 +509,7 @@ static struct msm_queue_cmd_t* __msm_control(struct msm_sync_t *sync,
 }
 
 static int msm_control(struct msm_control_device_t *ctrl_pmsm,
+			int block,
 			void __user *arg)
 {
 	int rc = 0;
@@ -543,8 +547,15 @@ static int msm_control(struct msm_control_device_t *ctrl_pmsm,
 		}
 	}
 
-	qcmd_temp = __msm_control(sync, &ctrl_pmsm->ctrl_q,
-					qcmd, MAX_SCHEDULE_TIMEOUT);
+	if (!block) {
+		/* qcmd will be set to NULL */
+		qcmd = __msm_control(sync, NULL, qcmd, 0);
+		goto end;
+	}
+
+	qcmd_temp = __msm_control(sync,
+				  &ctrl_pmsm->ctrl_q,
+				  qcmd, MAX_SCHEDULE_TIMEOUT);
 
 	if (IS_ERR(qcmd_temp)) {
 		rc = PTR_ERR(qcmd_temp);
@@ -1522,8 +1533,12 @@ static long msm_ioctl_control(struct file *filep, unsigned int cmd,
 	switch (cmd) {
 	case MSM_CAM_IOCTL_CTRL_COMMAND:
 		/* Coming from control thread, may need to wait for
-		* command status */
-		rc = msm_control(ctrl_pmsm, argp);
+		 * command status */
+		rc = msm_control(ctrl_pmsm, 1, argp);
+		break;
+	case MSM_CAM_IOCTL_CTRL_COMMAND_2:
+		/* Sends a message, returns immediately */
+		rc = msm_control(ctrl_pmsm, 0, argp);
 		break;
 	case MSM_CAM_IOCTL_CTRL_CMD_DONE:
 		/* Config thread calls the control thread to notify it
