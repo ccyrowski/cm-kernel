@@ -192,11 +192,13 @@ struct msmsdcc_curr_req {
 };
 
 struct msmsdcc_host {
-	struct resource		*irqres;
+	struct resource		*cmd_irqres;
+	struct resource		*pio_irqres;
 	struct resource		*memres;
 	struct resource		*dmares;
 	void __iomem		*base;
 	int			pdev_id;
+	unsigned int		stat_irq;
 
 	struct msmsdcc_curr_req	curr;
 

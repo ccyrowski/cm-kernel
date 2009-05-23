@@ -982,8 +982,8 @@ do_resume_work(struct work_struct *work)
 
 	if (mmc) {
 		mmc_resume_host(mmc);
-		if (host->plat->status_irq)
-			enable_irq(host->plat->status_irq);
+		if (host->stat_irq)
+			enable_irq(host->stat_irq);
 	}
 }
 #endif
@@ -994,11 +994,12 @@ msmsdcc_probe(struct platform_device *pdev)
 	struct mmc_platform_data *plat = pdev->dev.platform_data;
 	struct msmsdcc_host *host;
 	struct mmc_host *mmc;
-	struct resource *irqres = NULL;
+	struct resource *cmd_irqres = NULL;
+	struct resource *pio_irqres = NULL;
+	struct resource *stat_irqres = NULL;
 	struct resource *memres = NULL;
 	struct resource *dmares = NULL;
 	int ret;
-	int i;
 
 	/* must have platform data */
 	if (!plat) {
@@ -1015,15 +1016,16 @@ msmsdcc_probe(struct platform_device *pdev)
 		return -ENXIO;
 	}
 
-	for (i = 0; i < pdev->num_resources; i++) {
-		if (pdev->resource[i].flags & IORESOURCE_MEM)
-			memres = &pdev->resource[i];
-		if (pdev->resource[i].flags & IORESOURCE_IRQ)
-			irqres = &pdev->resource[i];
-		if (pdev->resource[i].flags & IORESOURCE_DMA)
-			dmares = &pdev->resource[i];
-	}
-	if (!irqres || !memres) {
+	memres = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	dmares = platform_get_resource(pdev, IORESOURCE_DMA, 0);
+	cmd_irqres = platform_get_resource_byname(pdev, IORESOURCE_IRQ,
+						  "cmd_irq");
+	pio_irqres = platform_get_resource_byname(pdev, IORESOURCE_IRQ,
+						  "pio_irq");
+	stat_irqres = platform_get_resource_byname(pdev, IORESOURCE_IRQ,
+						   "status_irq");
+
+	if (!cmd_irqres || !pio_irqres || !memres) {
 		printk(KERN_ERR "%s: Invalid resource\n", __func__);
 		return -ENXIO;
 	}
@@ -1049,7 +1051,8 @@ msmsdcc_probe(struct platform_device *pdev)
 		goto out;
 	}
 
-	host->irqres = irqres;
+	host->cmd_irqres = cmd_irqres;
+	host->pio_irqres = pio_irqres;
 	host->memres = memres;
 	host->dmares = dmares;
 	spin_lock_init(&host->lock);
@@ -1145,15 +1148,19 @@ msmsdcc_probe(struct platform_device *pdev)
 
 	memset(&host->timer, 0, sizeof(host->timer));
 
-	if (plat->status_irq) {
-		ret = request_irq(plat->status_irq,
+	if (stat_irqres && !(stat_irqres->flags & IORESOURCE_DISABLED)) {
+		unsigned long irqflags = IRQF_SHARED |
+			(stat_irqres->flags & IRQF_TRIGGER_MASK);
+
+		host->stat_irq = stat_irqres->start;
+		ret = request_irq(host->stat_irq,
 				  msmsdcc_platform_status_irq,
-				  IRQF_SHARED,
+				  irqflags,
 				  DRIVER_NAME " (slot)",
 				  host);
 		if (ret) {
 			printk(KERN_ERR "Unable to get slot IRQ %d (%d)\n",
-			       plat->status_irq, ret);
+			       host->stat_irq, ret);
 			goto clk_disable;
 		}
 	} else if (plat->register_status_notify) {
@@ -1182,15 +1189,15 @@ msmsdcc_probe(struct platform_device *pdev)
 	host->command_timer.data = (unsigned long) host;
 	host->command_timer.function = msmsdcc_command_expired;
 
-	ret = request_irq(irqres->start, msmsdcc_irq, IRQF_SHARED,
+	ret = request_irq(cmd_irqres->start, msmsdcc_irq, IRQF_SHARED,
 			  DRIVER_NAME " (cmd)", host);
 	if (ret)
-		goto platform_irq_free;
+		goto stat_irq_free;
 
-	ret = request_irq(irqres->end, msmsdcc_pio_irq, IRQF_SHARED,
+	ret = request_irq(pio_irqres->start, msmsdcc_pio_irq, IRQF_SHARED,
 			  DRIVER_NAME " (pio)", host);
 	if (ret)
-		goto irq_free;
+		goto cmd_irq_free;
 
 	mmc_set_drvdata(pdev, mmc);
 	mmc_add_host(mmc);
@@ -1198,8 +1205,8 @@ msmsdcc_probe(struct platform_device *pdev)
 	printk(KERN_INFO
 	       "%s: Qualcomm MSM SDCC at 0x%016llx irq %d,%d dma %d\n",
 	       mmc_hostname(mmc), (unsigned long long)memres->start,
-	       (unsigned int) irqres->start,
-	       (unsigned int) plat->status_irq, host->dma.channel);
+	       (unsigned int) cmd_irqres->start,
+	       (unsigned int) host->stat_irq, host->dma.channel);
 	printk(KERN_INFO "%s: 4 bit data mode %s\n", mmc_hostname(mmc),
 	       (mmc->caps & MMC_CAP_4_BIT_DATA ? "enabled" : "disabled"));
 	printk(KERN_INFO "%s: MMC clock %u -> %u Hz, PCLK %u Hz\n",
@@ -1228,11 +1235,11 @@ msmsdcc_probe(struct platform_device *pdev)
 	msmsdcc_dbg_createhost(host);
 #endif
 	return 0;
- irq_free:
-	free_irq(irqres->start, host);
- platform_irq_free:
-	if (plat->status_irq)
-		free_irq(plat->status_irq, host);
+ cmd_irq_free:
+	free_irq(cmd_irqres->start, host);
+ stat_irq_free:
+	if (host->stat_irq)
+		free_irq(host->stat_irq, host);
  clk_disable:
 	clk_disable(host->clk);
  clk_put:
@@ -1256,8 +1263,8 @@ msmsdcc_suspend(struct platform_device *dev, pm_message_t state)
 	if (mmc) {
 		struct msmsdcc_host *host = mmc_priv(mmc);
 
-		if (host->plat->status_irq)
-			disable_irq(host->plat->status_irq);
+		if (host->stat_irq)
+			disable_irq(host->stat_irq);
 
 		if (mmc->card && mmc->card->type != MMC_TYPE_SDIO)
 			rc = mmc_suspend_host(mmc, state);
@@ -1300,11 +1307,11 @@ msmsdcc_resume(struct platform_device *dev)
 			schedule_work(&host->resume_task);
 #else
 			mmc_resume_host(mmc);
-			if (host->plat->status_irq)
-				enable_irq(host->plat->status_irq);
+			if (host->stat_irq)
+				enable_irq(host->stat_irq);
 #endif
-		else if (host->plat->status_irq)
-			enable_irq(host->plat->status_irq);
+		else if (host->stat_irq)
+			enable_irq(host->stat_irq);
 	}
 	return 0;
 }
