@@ -11,7 +11,7 @@
 
 #define CDBG(fmt, args...) printk(KERN_INFO "msm_camera vfe7x: " fmt, ##args)
 
-#define QDSP_CMDQUEUE 25
+#define QDSP_CMDQUEUE QDSP_vfeCommandQueue
 
 #define VFE_RESET_CMD 0
 #define VFE_START_CMD 1
