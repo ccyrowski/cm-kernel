@@ -765,6 +765,7 @@ static int __init mddi_probe(struct platform_device *pdev)
 	}
 	mddi->base = ioremap(resource->start, resource->end - resource->start);
 	if (!mddi->base) {
+		printk(KERN_ERR "mddi: failed to remap base!\n");
 		ret = -EINVAL;
 		goto error_ioremap;
 	}
@@ -788,19 +789,25 @@ static int __init mddi_probe(struct platform_device *pdev)
 		       "mddi_link_active_idle_lock");
 
 	ret = mddi_clk_setup(pdev, mddi, pdata->clk_rate);
-	if (ret)
+	if (ret) {
+		printk(KERN_ERR "mddi: failed to setup clock!\n");
 		goto error_clk_setup;
+	}
 
 	ret = mddi_rev_data_setup(mddi);
-	if (ret)
+	if (ret) {
+		printk(KERN_ERR "mddi: failed to setup rev data!\n");
 		goto error_rev_data;
+	}
 
 	mddi->int_enable = 0;
 	mddi_writel(mddi->int_enable, INTEN);
 	ret = request_irq(mddi->irq, mddi_isr, IRQF_DISABLED, "mddi",
 			  &mddi->client_data);
-	if (ret)
+	if (ret) {
+		printk(KERN_ERR "mddi: failed to request enable irq!\n");
 		goto error_request_irq;
+	}
 
 	/* turn on the mddi client bridge chip */
 	if (mddi->power_client)
@@ -812,7 +819,7 @@ static int __init mddi_probe(struct platform_device *pdev)
 	mddi_wait_interrupt(mddi, MDDI_INT_NO_CMD_PKTS_PEND);
 	mddi->version = mddi_init_registers(mddi);
 	if (mddi->version < 0x20) {
-		printk(KERN_INFO "mddi: unsupported version 0x%x\n",
+		printk(KERN_ERR "mddi: unsupported version 0x%x\n",
 		       mddi->version);
 		ret = -ENODEV;
 		goto error_mddi_version;
