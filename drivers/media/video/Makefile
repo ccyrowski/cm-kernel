@@ -150,6 +150,10 @@ obj-$(CONFIG_VIDEO_AU0828) += au0828/
 
 obj-$(CONFIG_USB_VIDEO_CLASS)	+= uvc/
 
+obj-$(CONFIG_MSM_CAMERA) += msm_camera.o
+obj-$(CONFIG_MSM_CAMERA) += msm_v4l2.o
+obj-$(CONFIG_MSM_CAMERA) += msm/
+
 EXTRA_CFLAGS += -Idrivers/media/dvb/dvb-core
 EXTRA_CFLAGS += -Idrivers/media/dvb/frontends
 EXTRA_CFLAGS += -Idrivers/media/common/tuners
