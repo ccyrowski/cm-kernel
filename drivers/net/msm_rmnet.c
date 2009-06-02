@@ -36,6 +36,7 @@
 
 /* XXX should come from smd headers */
 #define SMD_PORT_ETHER0 11
+#define POLL_DELAY 1000000 /* 1 second delay interval */
 
 struct rmnet_private
 {
@@ -45,9 +46,13 @@ struct rmnet_private
 	struct wake_lock wake_lock;
 #ifdef CONFIG_MSM_RMNET_DEBUG
 	ktime_t last_packet;
+	short active_countdown; /* Number of times left to check */
+	short restart_count; /* Number of polls seems so far */
 	unsigned long wakeups_xmit;
 	unsigned long wakeups_rcv;
 	unsigned long timeout_us;
+	unsigned long awake_time_ms;
+	struct delayed_work work;
 #endif
 };
 
@@ -62,7 +67,49 @@ static int count_this_packet(void *_hdr, int len)
 }
 
 #ifdef CONFIG_MSM_RMNET_DEBUG
+static int in_suspend;
 static unsigned long timeout_us;
+static struct workqueue_struct *rmnet_wq;
+
+static void do_check_active(struct work_struct *work)
+{
+	struct rmnet_private *p =
+		container_of(work, struct rmnet_private, work.work);
+
+	/*
+	 * Soft timers do not wake the cpu from suspend.
+	 * If we are in suspend, do_check_active is only called once at the
+	 * timeout time instead of polling at POLL_DELAY interval. Otherwise the
+	 * cpu will sleeps and the timer can fire much much later than POLL_DELAY
+	 * casuing a skew in time calculations.
+	 */
+	if (in_suspend) {
+		/*
+		 * Assume for N packets sent durring this session, they are
+		 * uniformly distributed durring the timeout window.
+		 */
+		int tmp = p->timeout_us * 2 -
+			(p->timeout_us / (p->active_countdown + 1));
+		tmp /= 1000;
+		p->awake_time_ms += tmp;
+
+		p->active_countdown = p->restart_count = 0;
+		return;
+	}
+
+	/*
+	 * Poll if not in suspend, since this gives more accurate tracking of
+	 * rmnet sessions.
+	 */
+	p->restart_count++;
+	if (--p->active_countdown == 0) {
+		p->awake_time_ms += p->restart_count * POLL_DELAY / 1000;
+		p->restart_count = 0;
+	} else {
+		queue_delayed_work(rmnet_wq, &p->work,
+				usecs_to_jiffies(POLL_DELAY));
+	}
+}
 
 #ifdef CONFIG_HAS_EARLYSUSPEND
 /*
@@ -93,6 +140,7 @@ static void rmnet_early_suspend(struct early_suspend *handler) {
 		struct rmnet_private *p = netdev_priv(to_net_dev(rmnet0));
 		p->timeout_us = timeout_suspend_us;
 	}
+	in_suspend = 1;
 }
 
 static void rmnet_late_resume(struct early_suspend *handler) {
@@ -100,6 +148,7 @@ static void rmnet_late_resume(struct early_suspend *handler) {
 		struct rmnet_private *p = netdev_priv(to_net_dev(rmnet0));
 		p->timeout_us = timeout_us;
 	}
+	in_suspend = 0;
 }
 
 static struct early_suspend rmnet_power_suspend = {
@@ -123,13 +172,24 @@ static int rmnet_cause_wakeup(struct rmnet_private *p) {
 	if (p->timeout_us == 0) /* Check if disabled */
 		return 0;
 
-	/* Use real (wall) time. */
-	now = ktime_get_real();
-
-	if (ktime_us_delta(now, p->last_packet) > p->timeout_us) {
+	/* Start timer on a wakeup packet */
+	if (p->active_countdown == 0) {
 		ret = 1;
+		now = ktime_get_real();
+		p->last_packet = now;
+		if (in_suspend)
+			queue_delayed_work(rmnet_wq, &p->work,
+					usecs_to_jiffies(p->timeout_us));
+		else
+			queue_delayed_work(rmnet_wq, &p->work,
+					usecs_to_jiffies(POLL_DELAY));
 	}
-	p->last_packet = now;
+
+	if (in_suspend)
+		p->active_countdown++;
+	else
+		p->active_countdown = p->timeout_us / POLL_DELAY;
+
 	return ret;
 }
 
@@ -175,6 +235,16 @@ static ssize_t timeout_show(struct device *d, struct device_attribute *attr,
 }
 
 DEVICE_ATTR(timeout, 0664, timeout_show, timeout_store);
+
+/* Show total radio awake time in ms */
+static ssize_t awake_time_show(struct device *d, struct device_attribute *attr,
+				char *buf)
+{
+	struct rmnet_private *p = netdev_priv(to_net_dev(d));
+	return sprintf(buf, "%lu\n", p->awake_time_ms);
+}
+DEVICE_ATTR(awake_time_ms, 0444, awake_time_show, NULL);
+
 #endif
 
 /* Called in soft-irq context */
@@ -339,6 +409,9 @@ static int __init rmnet_init(void)
 #endif
 #endif
 
+
+	rmnet_wq = create_workqueue("rmnet");
+
 	for (n = 0; n < 3; n++) {
 		dev = alloc_netdev(sizeof(struct rmnet_private),
 				   "rmnet%d", rmnet_setup);
@@ -352,7 +425,9 @@ static int __init rmnet_init(void)
 		wake_lock_init(&p->wake_lock, WAKE_LOCK_SUSPEND, ch_name[n]);
 #ifdef CONFIG_MSM_RMNET_DEBUG
 		p->timeout_us = timeout_us;
-		p->wakeups_xmit = p->wakeups_rcv = 0;
+		p->awake_time_ms = p->wakeups_xmit = p->wakeups_rcv = 0;
+		p->active_countdown = p->restart_count = 0;
+		INIT_DELAYED_WORK_DEFERRABLE(&p->work, do_check_active);
 #endif
 
 		ret = register_netdev(dev);
@@ -367,6 +442,8 @@ static int __init rmnet_init(void)
 		if (device_create_file(d, &dev_attr_wakeups_xmit))
 			continue;
 		if (device_create_file(d, &dev_attr_wakeups_rcv))
+			continue;
+		if (device_create_file(d, &dev_attr_awake_time_ms))
 			continue;
 #ifdef CONFIG_HAS_EARLYSUSPEND
 		if (device_create_file(d, &dev_attr_timeout_suspend))
