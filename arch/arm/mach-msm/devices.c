@@ -489,6 +489,9 @@ struct platform_device msm_device_mddi0 = {
 	.id = 0,
 	.num_resources = ARRAY_SIZE(resources_mddi0),
 	.resource = resources_mddi0,
+	.dev            = {
+		.coherent_dma_mask      = 0xffffffff,
+	},
 };
 
 struct platform_device msm_device_mddi1 = {
@@ -496,6 +499,9 @@ struct platform_device msm_device_mddi1 = {
 	.id = 1,
 	.num_resources = ARRAY_SIZE(resources_mddi1),
 	.resource = resources_mddi1,
+	.dev            = {
+		.coherent_dma_mask      = 0xffffffff,
+	}
 };
 
 static struct resource resources_mdp[] = {
