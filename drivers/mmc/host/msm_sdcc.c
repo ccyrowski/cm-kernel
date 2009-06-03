@@ -198,12 +198,6 @@ msmsdcc_dma_complete_func(struct msm_dmov_cmd *cmd,
 	if ((host->curr.got_dataend && host->curr.got_datablkend)
              || mrq->data->error) {
 
-		if (mrq->data->error
-		    && !(host->curr.got_dataend
-			 && host->curr.got_datablkend)) {
-			printk(KERN_INFO "%s: Worked around bug 1535304\n",
-			       mmc_hostname(host->mmc));
-		}
 		/*
 		 * If we've already gotten our DATAEND / DATABLKEND
 		 * for this request, then complete it through here.
