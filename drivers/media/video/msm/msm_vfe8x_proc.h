@@ -517,21 +517,21 @@ struct vfe_stats_cmd_data {
 	boolean  colorConversionEnable;
 };
 
-struct vfe_hw_ver_t {
+struct vfe_hw_ver {
 	uint32_t minorVersion:8;
 	uint32_t majorVersion:8;
 	uint32_t coreVersion:4;
 	uint32_t /* reserved */ : 12;
 } __attribute__((packed, aligned(4)));
 
-struct vfe_cfg_t {
+struct vfe_cfg {
 	uint32_t pixelPattern:3;
 	uint32_t /* reserved */ : 13;
 	uint32_t inputSource:2;
 	uint32_t /* reserved */ : 14;
 } __attribute__((packed, aligned(4)));
 
-struct vfe_buscmd_t {
+struct vfe_buscmd {
 	uint32_t  stripeReload:1;
 	uint32_t  /* reserved */ : 3;
 	uint32_t  busPingpongReload:1;
@@ -546,7 +546,7 @@ struct VFE_Irq_Composite_MaskType {
 	uint32_t  /* reserved */ : 23;
 } __attribute__((packed, aligned(4)));
 
-struct vfe_mod_enable_t {
+struct vfe_mod_enable {
 	uint32_t blackLevelCorrectionEnable:1;
 	uint32_t lensRollOffEnable:1;
 	uint32_t demuxEnable:1;
@@ -570,7 +570,7 @@ struct vfe_mod_enable_t {
 	uint32_t /* reserved */ : 14;
 } __attribute__((packed, aligned(4)));
 
-struct vfe_irqenable_t {
+struct vfe_irqenable {
 	uint32_t camifErrorIrq:1;
 	uint32_t camifSofIrq:1;
 	uint32_t camifEolIrq:1;
@@ -605,7 +605,7 @@ struct vfe_irqenable_t {
 	uint32_t violationIrq:1;
 } __attribute__((packed, aligned(4)));
 
-struct vfe_upsample_cfg_t {
+struct vfe_upsample_cfg {
 	uint32_t chromaCositingForYCbCrInputs:1;
 	uint32_t /* reserved */ : 31;
 } __attribute__((packed, aligned(4)));
@@ -628,7 +628,7 @@ struct VFE_CAMIFConfigType {
 	uint32_t  misrEnable:1;
 } __attribute__((packed, aligned(4)));
 
-struct vfe_camifcfg_t {
+struct vfe_camifcfg {
 	/* EFS_Config */
 	uint32_t efsEndOfLine:8;
 	uint32_t efsStartOfLine:8;
@@ -664,14 +664,14 @@ struct vfe_camifcfg_t {
 	uint32_t /* reserved */ : 2;
 } __attribute__((packed, aligned(4)));
 
-struct vfe_camifframe_update_t {
+struct vfe_camifframe_update {
 	uint32_t pixelsPerLine:14;
 	uint32_t /* reserved */ : 2;
 	uint32_t linesPerFrame:14;
 	uint32_t /* reserved */ : 2;
 } __attribute__((packed, aligned(4)));
 
-struct vfe_axi_bus_cfg_t {
+struct vfe_axi_bus_cfg {
 	uint32_t  stripeRdPathEn:1;
 	uint32_t  /* reserved */ : 3;
 	uint32_t  encYWrPathEn:1;
@@ -683,7 +683,7 @@ struct vfe_axi_bus_cfg_t {
 	uint32_t  /* reserved */ : 20;
 } __attribute__((packed, aligned(4)));
 
-struct vfe_axi_out_cfg_t {
+struct vfe_axi_out_cfg {
 	uint32_t  out2YPingAddr:32;
 	uint32_t  out2YPongAddr:32;
 	uint32_t  out2YImageHeight:12;
@@ -730,7 +730,7 @@ struct vfe_axi_out_cfg_t {
 	uint32_t  /* reserved */ : 4;
 } __attribute__((packed, aligned(4)));
 
-struct vfe_output_clamp_cfg_t {
+struct vfe_output_clamp_cfg {
 	/* Output Clamp Maximums */
 	uint32_t yChanMax:8;
 	uint32_t cbChanMax:8;
@@ -743,7 +743,7 @@ struct vfe_output_clamp_cfg_t {
 	uint32_t /* reserved */ : 8;
 } __attribute__((packed, aligned(4)));
 
-struct vfe_fov_crop_cfg_t {
+struct vfe_fov_crop_cfg {
 	uint32_t lastPixel:12;
 	uint32_t /* reserved */ : 4;
 	uint32_t firstPixel:12;
@@ -761,7 +761,7 @@ struct VFE_FRAME_SKIP_UpdateCmdType {
 	uint32_t  cbcrPattern:32;
 } __attribute__((packed, aligned(4)));
 
-struct vfe_frame_skip_cfg_t {
+struct vfe_frame_skip_cfg {
 	/* Frame Drop Enc (output2) */
 	uint32_t output2YPeriod:5;
 	uint32_t /* reserved */	: 27;
@@ -778,7 +778,7 @@ struct vfe_frame_skip_cfg_t {
 	uint32_t output1CbCrPattern:32;
 } __attribute__((packed, aligned(4)));
 
-struct vfe_main_scaler_cfg_t {
+struct vfe_main_scaler_cfg {
 	/* Scaler Enable Config */
 	uint32_t hEnable:1;
 	uint32_t vEnable:1;
@@ -815,7 +815,7 @@ struct vfe_main_scaler_cfg_t {
 	uint32_t /* reserved */ : 1;
 } __attribute__((packed, aligned(4)));
 
-struct vfe_scaler2_cfg_t {
+struct vfe_scaler2_cfg {
 	/* Scaler   Enable Config */
 	uint32_t  hEnable:1;
 	uint32_t  vEnable:1;
@@ -842,7 +842,7 @@ struct vfe_scaler2_cfg_t {
 	uint32_t  /* reserved */ : 10;
 } __attribute__((packed, aligned(4)));
 
-struct vfe_rolloff_cfg_t {
+struct vfe_rolloff_cfg {
 	/* Rolloff 0 Config */
 	uint32_t  gridWidth:9;
 	uint32_t  gridHeight:9;
@@ -860,7 +860,7 @@ struct vfe_rolloff_cfg_t {
 	uint32_t  /* reserved */ : 20;
 } __attribute__((packed, aligned(4)));
 
-struct vfe_asf_update_t {
+struct vfe_asf_update {
 	/* ASF Config Command */
 	uint32_t smoothEnable:1;
 	uint32_t sharpMode:2;
@@ -914,7 +914,7 @@ struct vfe_asf_update_t {
 	uint32_t /* reserved */ : 7;
 } __attribute__((packed, aligned(4)));
 
-struct vfe_asfcrop_cfg_t {
+struct vfe_asfcrop_cfg {
 	/* ASF Crop Width Config */
 	uint32_t lastPixel:12;
 	uint32_t /* reserved */ : 4;
@@ -927,7 +927,7 @@ struct vfe_asfcrop_cfg_t {
 	uint32_t /* reserved */ : 4;
 } __attribute__((packed, aligned(4)));
 
-struct vfe_chroma_suppress_cfg_t {
+struct vfe_chroma_suppress_cfg {
 	/* Chroma Suppress 0 Config */
 	uint32_t m1:8;
 	uint32_t m3:8;
@@ -941,7 +941,7 @@ struct vfe_chroma_suppress_cfg_t {
 	uint32_t /* reserved */ : 21;
 } __attribute__((packed, aligned(4)));
 
-struct vfe_chromasubsample_cfg_t {
+struct vfe_chromasubsample_cfg {
 	/* Chroma Subsample Selection */
 	uint32_t  hCositedPhase:1;
 	uint32_t  vCositedPhase:1;
@@ -961,7 +961,7 @@ struct vfe_chromasubsample_cfg_t {
 	uint32_t  /* reserved */ : 4;
 } __attribute__((packed, aligned(4)));
 
-struct vfe_blacklevel_cfg_t {
+struct vfe_blacklevel_cfg {
 	/* Black Even-Even Value Config */
 	uint32_t    evenEvenAdjustment:9;
 	uint32_t   /* reserved */ : 23;
@@ -976,7 +976,7 @@ struct vfe_blacklevel_cfg_t {
 	uint32_t   /* reserved */ : 23;
 } __attribute__((packed, aligned(4)));
 
-struct vfe_demux_cfg_t {
+struct vfe_demux_cfg {
 	/* Demux Gain 0 Config */
 	uint32_t  ch0EvenGain:10;
 	uint32_t  /* reserved */ : 6;
@@ -989,14 +989,14 @@ struct vfe_demux_cfg_t {
 	uint32_t  /* reserved */ : 6;
 } __attribute__((packed, aligned(4)));
 
-struct vfe_bps_info_t {
+struct vfe_bps_info {
   uint32_t greenBadPixelCount:8;
   uint32_t /* reserved */ : 8;
   uint32_t RedBlueBadPixelCount:8;
   uint32_t /* reserved */ : 8;
 } __attribute__((packed, aligned(4)));
 
-struct vfe_demosaic_cfg_t {
+struct vfe_demosaic_cfg {
 	/* Demosaic Config */
 	uint32_t abfEnable:1;
 	uint32_t badPixelCorrEnable:1;
@@ -1011,7 +1011,7 @@ struct vfe_demosaic_cfg_t {
 	uint32_t /* reserved */ : 1;
 } __attribute__((packed, aligned(4)));
 
-struct vfe_demosaic_bpc_cfg_t {
+struct vfe_demosaic_bpc_cfg {
 	/* Demosaic BPC Config 0 */
 	uint32_t blueDiffThreshold:12;
 	uint32_t redDiffThreshold:12;
@@ -1021,7 +1021,7 @@ struct vfe_demosaic_bpc_cfg_t {
 	uint32_t /* reserved */ : 20;
 } __attribute__((packed, aligned(4)));
 
-struct vfe_demosaic_abf_cfg_t {
+struct vfe_demosaic_abf_cfg {
 	/* Demosaic ABF Config 0 */
 	uint32_t lpThreshold:10;
 	uint32_t /* reserved */ : 22;
@@ -1033,7 +1033,7 @@ struct vfe_demosaic_abf_cfg_t {
 	uint32_t /* reserved */ : 6;
 } __attribute__((packed, aligned(4)));
 
-struct vfe_color_correction_cfg_t {
+struct vfe_color_correction_cfg {
 	/* Color Corr. Coefficient 0 Config */
 	uint32_t   c0:12;
 	uint32_t   /* reserved */ : 20;
@@ -1081,7 +1081,7 @@ struct VFE_LumaAdaptation_ConfigCmdType {
 	uint32_t   /* reserved */ : 31;
 } __attribute__((packed, aligned(4)));
 
-struct vfe_wb_cfg_t {
+struct vfe_wb_cfg {
 	/* WB Config */
 	uint32_t ch0Gain:9;
 	uint32_t ch1Gain:9;
@@ -1097,7 +1097,7 @@ struct VFE_GammaLutSelect_ConfigCmdType {
 	uint32_t   /* reserved */ : 29;
 } __attribute__((packed, aligned(4)));
 
-struct vfe_chroma_enhance_cfg_t {
+struct vfe_chroma_enhance_cfg {
 	/* Chroma Enhance A Config */
 	uint32_t ap:11;
 	uint32_t /* reserved */ : 5;
@@ -1125,7 +1125,7 @@ struct vfe_chroma_enhance_cfg_t {
 	uint32_t /* reserved */ : 5;
 } __attribute__((packed, aligned(4)));
 
-struct vfe_color_convert_cfg_t {
+struct vfe_color_convert_cfg {
 	/* Conversion Coefficient 0 */
 	uint32_t v0:12;
 	uint32_t /* reserved */ : 20;
@@ -1259,7 +1259,7 @@ struct VFE_Bus_Pm_ConfigCmdType {
 	uint32_t  /* reserved */ : 28;
 } __attribute__((packed, aligned(4)));
 
-struct vfe_asf_info_t {
+struct vfe_asf_info {
 	/* asf max edge  */
 	uint32_t maxEdge:13;
 	uint32_t /* reserved */ : 3;
@@ -1268,7 +1268,7 @@ struct vfe_asf_info_t {
 	uint32_t /* reserved */ : 4;
 } __attribute__((packed, aligned(4)));
 
-struct vfe_camif_stats_t {
+struct vfe_camif_stats {
   uint32_t  pixelCount:14;
   uint32_t  /* reserved */ : 2;
   uint32_t  lineCount:14;
@@ -1287,14 +1287,14 @@ struct VFE_StatsCmdType {
 } __attribute__((packed, aligned(4)));
 
 
-struct vfe_statsframe_t {
+struct vfe_statsframe {
 	uint32_t lastPixel:12;
 	uint32_t /* reserved */ : 4;
 	uint32_t lastLine:12;
 	uint32_t /* reserved */ : 4;
 } __attribute__((packed, aligned(4)));
 
-struct vfe_busstats_wrprio_t {
+struct vfe_busstats_wrprio {
 	uint32_t afBusPriority:4;
 	uint32_t awbBusPriority:4;
 	uint32_t histBusPriority:4;
@@ -1304,7 +1304,7 @@ struct vfe_busstats_wrprio_t {
 	uint32_t /* reserved */ : 17;
 } __attribute__((packed, aligned(4)));
 
-struct vfe_statsaf_update_t {
+struct vfe_statsaf_update {
 	/* VFE_STATS_AF_CFG */
 	uint32_t windowVOffset:12;
 	uint32_t /* reserved */ : 4;
@@ -1319,7 +1319,7 @@ struct vfe_statsaf_update_t {
 	uint32_t /* reserved */ : 4;
 } __attribute__((packed, aligned(4)));
 
-struct vfe_statsaf_cfg_t {
+struct vfe_statsaf_cfg {
 	/* VFE_STATS_AF_GRID_0 */
 	uint32_t  entry00:8;
 	uint32_t  entry01:8;
@@ -1363,7 +1363,7 @@ struct vfe_statsaf_cfg_t {
 	uint32_t  /* reserved */ : 7;
 } __attribute__((packed, aligned(4)));
 
-struct vfe_statsawbae_update_t {
+struct vfe_statsawbae_update {
 	uint32_t  aeRegionCfg:1;
 	uint32_t  aeSubregionCfg:1;
 	uint32_t  /* reserved */ : 14;
@@ -1371,13 +1371,13 @@ struct vfe_statsawbae_update_t {
 	uint32_t  awbYMax:8;
 } __attribute__((packed, aligned(4)));
 
-struct vfe_statsaxw_hdr_cfg_t {
+struct vfe_statsaxw_hdr_cfg {
 	/* Stats AXW Header Config */
 	uint32_t axwHeader:8;
 	uint32_t /* reserved */ : 24;
 } __attribute__((packed, aligned(4)));
 
-struct vfe_statsawb_update_t {
+struct vfe_statsawb_update {
 	/* AWB MConfig */
 	uint32_t  m4:8;
 	uint32_t  m3:8;
@@ -1496,7 +1496,7 @@ struct VFE_AxiRdFragIrqEnable {
 	uint32_t   /* reserved */ : 28;
 } __attribute__((packed, aligned(4)));
 
-int vfe_cmd_init(struct msm_vfe_resp *, struct platform_device *, void *);
+int vfe_cmd_init(struct msm_vfe_callback *, struct platform_device *, void *);
 void vfe_stats_af_stop(void);
 void vfe_stop(void);
 void vfe_update(void);

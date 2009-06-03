@@ -12,13 +12,13 @@
 struct mutex vfe_lock;
 static void     *vfe_syncdata;
 
-static int vfe_enable(struct camera_enable_cmd_t *enable)
+static int vfe_enable(struct camera_enable_cmd *enable)
 {
 	int rc = 0;
 	return rc;
 }
 
-static int vfe_disable(struct camera_enable_cmd_t *enable,
+static int vfe_disable(struct camera_enable_cmd *enable,
 	struct platform_device *dev)
 {
 	int rc = 0;
@@ -39,8 +39,8 @@ static void vfe_release(struct platform_device *dev)
 	mutex_unlock(&vfe_lock);
 }
 
-static void vfe_config_axi(enum vfeoutput_mode_t mode,
-	struct axidata_t *ad, struct vfe_cmd_axi_output_config *ao)
+static void vfe_config_axi(int mode,
+	struct axidata *ad, struct vfe_cmd_axi_output_config *ao)
 {
 	struct msm_pmem_region *regptr;
 	int i, j;
@@ -516,7 +516,7 @@ static int vfe_proc_general(struct msm_vfe_command_8k *cmd)
 	return rc;
 }
 
-static int vfe_config(struct msm_vfe_cfg_cmd_t *cmd, void *data)
+static int vfe_config(struct msm_vfe_cfg_cmd *cmd, void *data)
 {
 	struct msm_pmem_region *regptr;
 	struct msm_vfe_command_8k vfecmd;
@@ -527,7 +527,7 @@ static int vfe_config(struct msm_vfe_cfg_cmd_t *cmd, void *data)
 	long rc = 0;
 
 	struct vfe_cmd_axi_output_config *axio = NULL;
-	struct vfe_cmd_stats_setting *scfg_t = NULL;
+	struct vfe_cmd_stats_setting *scfg = NULL;
 
 	if (cmd->cmd_type != CMD_FRAME_BUF_RELEASE &&
 	    cmd->cmd_type != CMD_STATS_BUF_RELEASE) {
@@ -547,30 +547,30 @@ static int vfe_config(struct msm_vfe_cfg_cmd_t *cmd, void *data)
 
 	case CMD_STATS_ENABLE:
 	case CMD_STATS_AXI_CFG: {
-		struct axidata_t *axid;
+		struct axidata *axid;
 
 		axid = data;
 		if (!axid)
 			return -EFAULT;
 
-		scfg_t =
+		scfg =
 			kmalloc(sizeof(struct vfe_cmd_stats_setting),
 				GFP_ATOMIC);
-		if (!scfg_t)
+		if (!scfg)
 			return -ENOMEM;
 
-		if (copy_from_user(scfg_t,
+		if (copy_from_user(scfg,
 					(void __user *)(vfecmd.value),
 					vfecmd.length)) {
 
-			kfree(scfg_t);
+			kfree(scfg);
 			return -EFAULT;
 		}
 
 		regptr = axid->region;
 		if (axid->bufnum1 > 0) {
 			for (i = 0; i < axid->bufnum1; i++) {
-				scfg_t->awbBuffer[i] =
+				scfg->awbBuffer[i] =
 					(uint32_t)(regptr->paddr);
 				regptr++;
 			}
@@ -578,13 +578,13 @@ static int vfe_config(struct msm_vfe_cfg_cmd_t *cmd, void *data)
 
 		if (axid->bufnum2 > 0) {
 			for (i = 0; i < axid->bufnum2; i++) {
-				scfg_t->afBuffer[i] =
+				scfg->afBuffer[i] =
 					(uint32_t)(regptr->paddr);
 				regptr++;
 			}
 		}
 
-		vfe_stats_config(scfg_t);
+		vfe_stats_config(scfg);
 	}
 		break;
 
@@ -594,14 +594,14 @@ static int vfe_config(struct msm_vfe_cfg_cmd_t *cmd, void *data)
 
 	case CMD_FRAME_BUF_RELEASE: {
 		/* preview buffer release */
-		struct msm_frame_t *b;
+		struct msm_frame *b;
 		unsigned long p;
 		struct vfe_cmd_output_ack fack;
 
 		if (!data)
 			return -EFAULT;
 
-		b = (struct msm_frame_t *)(cmd->value);
+		b = (struct msm_frame *)(cmd->value);
 		p = *(unsigned long *)data;
 
 		b->path = MSM_FRAME_ENC;
@@ -637,7 +637,7 @@ static int vfe_config(struct msm_vfe_cfg_cmd_t *cmd, void *data)
 		break;
 
 	case CMD_AXI_CFG_OUT1: {
-		struct axidata_t *axid;
+		struct axidata *axid;
 
 		axid = data;
 		if (!axid)
@@ -662,7 +662,7 @@ static int vfe_config(struct msm_vfe_cfg_cmd_t *cmd, void *data)
 
 	case CMD_AXI_CFG_OUT2:
 	case CMD_RAW_PICT_AXI_CFG: {
-		struct axidata_t *axid;
+		struct axidata *axid;
 
 		axid = data;
 		if (!axid)
@@ -688,7 +688,7 @@ static int vfe_config(struct msm_vfe_cfg_cmd_t *cmd, void *data)
 		break;
 
 	case CMD_AXI_CFG_SNAP_O1_AND_O2: {
-		struct axidata_t *axid;
+		struct axidata *axid;
 		axid = data;
 		if (!axid)
 			return -EFAULT;
@@ -716,7 +716,7 @@ static int vfe_config(struct msm_vfe_cfg_cmd_t *cmd, void *data)
 		break;
 	} /* switch */
 
-	kfree(scfg_t);
+	kfree(scfg);
 
 	kfree(axio);
 
@@ -731,7 +731,7 @@ static int vfe_config(struct msm_vfe_cfg_cmd_t *cmd, void *data)
 	return rc;
 }
 
-static int vfe_init(struct msm_vfe_resp *presp,
+static int vfe_init(struct msm_vfe_callback *presp,
 	struct platform_device *dev)
 {
 	int rc = 0;
@@ -744,7 +744,7 @@ static int vfe_init(struct msm_vfe_resp *presp,
 	return msm_camio_enable(dev);
 }
 
-void msm_camvfe_fn_init(struct msm_camvfe_fn_t *fptr, void *data)
+void msm_camvfe_fn_init(struct msm_camvfe_fn *fptr, void *data)
 {
 	mutex_init(&vfe_lock);
 	fptr->vfe_init    = vfe_init;

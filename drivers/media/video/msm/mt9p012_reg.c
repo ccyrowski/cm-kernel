@@ -559,7 +559,7 @@ struct mt9p012_i2c_reg_conf mt9p012_rolloff_tbl[] = {
 };
 
 
-struct mt9p012_reg_t mt9p012_regs = {
+struct mt9p012_reg mt9p012_regs = {
 	.reg_pat = &mt9p012_reg_pat[0],
 	.reg_pat_size = ARRAY_SIZE(mt9p012_reg_pat),
 	.ttbl = &mt9p012_test_tbl[0],

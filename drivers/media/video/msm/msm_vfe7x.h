@@ -28,20 +28,20 @@ struct vfe_endframe {
 	uint16_t      reserved4:8;
 } __attribute__((packed, aligned(4)));
 
-struct vfe_outputack_t {
+struct vfe_outputack {
 	uint32_t  header;
 	void      *output2newybufferaddress;
 	void      *output2newcbcrbufferaddress;
 } __attribute__((packed, aligned(4)));
 
-struct vfe_stats_ack_t {
+struct vfe_stats_ack {
 	uint32_t header;
 	/* MUST BE 64 bit ALIGNED */
 	void     *bufaddr;
 } __attribute__((packed, aligned(4)));
 
 /* AXI Output Config Command sent to DSP */
-struct axiout_t {
+struct axiout {
 	uint32_t            cmdheader:32;
 	int 		    outputmode:3;
 	uint8_t             format:2;
@@ -133,7 +133,7 @@ struct axiout_t {
 	unsigned long   output2buffer8_cbcr_phy;
 } __attribute__((packed, aligned(4)));
 
-struct vfe_stats_we_cfg_t {
+struct vfe_stats_we_cfg {
 	uint32_t       header;
 
 	/* White Balance/Exposure Statistic Selection */
@@ -175,7 +175,7 @@ struct vfe_stats_we_cfg_t {
 	void  *wb_expstatoutputbuffer[NUM_WB_EXP_STAT_OUTPUT_BUFFERS];
 } __attribute__((packed, aligned(4)));
 
-struct vfe_stats_af_cfg_t {
+struct vfe_stats_af_cfg {
 	uint32_t header;
 
 	/* Autofocus Statistic Selection */
@@ -223,7 +223,7 @@ struct vfe_stats_af_cfg_t {
 	void *af_outbuf[NUM_AF_STAT_OUTPUT_BUFFERS];
 } __attribute__((packed, aligned(4))); /* VFE_StatsAutofocusConfigCmdType */
 
-struct msm_camera_frame_msg_t {
+struct msm_camera_frame_msg {
 	unsigned long   output_y_address;
 	unsigned long   output_cbcr_address;
 

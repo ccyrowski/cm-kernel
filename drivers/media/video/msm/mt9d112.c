@@ -21,19 +21,19 @@
 #define  REG_MT9D112_STANDBY_CONTROL  0x3202
 #define  REG_MT9D112_MCU_BOOT         0x3386
 
-struct mt9d112_work_t {
+struct mt9d112_work {
 	struct work_struct work;
 };
 
-static struct  mt9d112_work_t *mt9d112_sensorw;
+static struct  mt9d112_work *mt9d112_sensorw;
 static struct  i2c_client *mt9d112_client;
 
-struct mt9d112_ctrl_t {
+struct mt9d112_ctrl {
 	const struct msm_camera_sensor_info *sensordata;
 };
 
 
-static struct mt9d112_ctrl_t *mt9d112_ctrl;
+static struct mt9d112_ctrl *mt9d112_ctrl;
 
 static DECLARE_WAIT_QUEUE_HEAD(mt9d112_wait_queue);
 DECLARE_MUTEX(mt9d112_sem);
@@ -42,7 +42,7 @@ DECLARE_MUTEX(mt9d112_sem);
 /*=============================================================
 	EXTERNAL DECLARATIONS
 ==============================================================*/
-extern struct mt9d112_reg_t mt9d112_regs;
+extern struct mt9d112_reg mt9d112_regs;
 
 
 /*=============================================================*/
@@ -84,7 +84,7 @@ static int32_t mt9d112_i2c_txdata(unsigned short saddr,
 }
 
 static int32_t mt9d112_i2c_write(unsigned short saddr,
-	unsigned short waddr, unsigned short wdata, enum mt9d112_width_t width)
+	unsigned short waddr, unsigned short wdata, enum mt9d112_width width)
 {
 	int32_t rc = -EIO;
 	unsigned char buf[4];
@@ -168,7 +168,7 @@ static int mt9d112_i2c_rxdata(unsigned short saddr,
 }
 
 static int32_t mt9d112_i2c_read(unsigned short   saddr,
-	unsigned short raddr, unsigned short *rdata, enum mt9d112_width_t width)
+	unsigned short raddr, unsigned short *rdata, enum mt9d112_width width)
 {
 	int32_t rc = 0;
 	unsigned char buf[4];
@@ -582,7 +582,7 @@ int mt9d112_sensor_init(const struct msm_camera_sensor_info *data)
 {
 	int rc = 0;
 
-	mt9d112_ctrl = kzalloc(sizeof(struct mt9d112_ctrl_t), GFP_KERNEL);
+	mt9d112_ctrl = kzalloc(sizeof(struct mt9d112_ctrl), GFP_KERNEL);
 	if (!mt9d112_ctrl) {
 		CDBG("mt9d112_init failed!\n");
 		rc = -ENOMEM;
@@ -621,12 +621,12 @@ static int mt9d112_init_client(struct i2c_client *client)
 
 int mt9d112_sensor_config(void __user *argp)
 {
-	struct sensor_cfg_data_t cfg_data;
+	struct sensor_cfg_data cfg_data;
 	long   rc = 0;
 
 	if (copy_from_user(&cfg_data,
 			(void *)argp,
-			sizeof(struct sensor_cfg_data_t)))
+			sizeof(struct sensor_cfg_data)))
 		return -EFAULT;
 
 	/* down(&mt9d112_sem); */
@@ -678,7 +678,7 @@ static int mt9d112_i2c_probe(struct i2c_client *client,
 	}
 
 	mt9d112_sensorw =
-		kzalloc(sizeof(struct mt9d112_work_t), GFP_KERNEL);
+		kzalloc(sizeof(struct mt9d112_work), GFP_KERNEL);
 
 	if (!mt9d112_sensorw) {
 		rc = -ENOMEM;
@@ -715,7 +715,7 @@ static struct i2c_driver mt9d112_i2c_driver = {
 };
 
 static int mt9d112_sensor_probe(const struct msm_camera_sensor_info *info,
-				struct msm_sensor_ctrl_t *s)
+				struct msm_sensor_ctrl *s)
 {
 	int rc = i2c_add_driver(&mt9d112_i2c_driver);
 	if (rc < 0 || mt9d112_client == NULL) {

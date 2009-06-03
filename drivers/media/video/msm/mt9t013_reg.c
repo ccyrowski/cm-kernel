@@ -251,7 +251,7 @@ struct mt9t013_i2c_reg_conf mt9t013_lc_tbl[] = {
 	{ 0x3780, 0x8000 } /* POLY_SC_ENABLE */
 };
 
-struct mt9t013_reg_t mt9t013_regs = {
+struct mt9t013_reg mt9t013_regs = {
 	.reg_pat = &mt9t013_reg_pat[0],
 	.reg_pat_size = ARRAY_SIZE(mt9t013_reg_pat),
 	.ttbl = &mt9t013_test_tbl[0],

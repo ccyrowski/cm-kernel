@@ -37,7 +37,7 @@ struct mt9p012_i2c_reg_conf {
 };
 
 
-struct mt9p012_reg_t {
+struct mt9p012_reg {
 	struct reg_struct *reg_pat;
 	uint16_t reg_pat_size;
 	struct mt9p012_i2c_reg_conf *ttbl;

@@ -34,7 +34,7 @@ struct mt9t013_i2c_reg_conf {
 	unsigned short wdata;
 };
 
-struct mt9t013_reg_t {
+struct mt9t013_reg {
 	struct reg_struct *reg_pat;
 	uint16_t reg_pat_size;
 	struct mt9t013_i2c_reg_conf *ttbl;

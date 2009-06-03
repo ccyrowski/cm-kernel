@@ -49,20 +49,20 @@
 #define MT9P012_REV_7
 
 
-enum mt9p012_test_mode_t {
+enum mt9p012_test_mode {
 	TEST_OFF,
 	TEST_1,
 	TEST_2,
 	TEST_3
 };
 
-enum mt9p012_resolution_t {
+enum mt9p012_resolution {
 	QTR_SIZE,
 	FULL_SIZE,
 	INVALID_SIZE
 };
 
-enum mt9p012_reg_update_t {
+enum mt9p012_reg_update {
 	/* Sensor egisters that need to be updated during initialization */
 	REG_INIT,
 	/* Sensor egisters that needs periodic I2C writes */
@@ -73,7 +73,7 @@ enum mt9p012_reg_update_t {
 	UPDATE_INVALID
 };
 
-enum mt9p012_setting_t {
+enum mt9p012_setting {
 	RES_PREVIEW,
 	RES_CAPTURE
 };
@@ -95,13 +95,13 @@ enum mt9p012_setting_t {
 #define MT9P012_DEFAULT_CLOCK_RATE  24000000
 #define MT9P012_DEFAULT_MAX_FPS     26 /* ???? */
 
-struct mt9p012_work_t {
+struct mt9p012_work {
 	struct work_struct work;
 };
-static struct mt9p012_work_t *mt9p012_sensorw;
+static struct mt9p012_work *mt9p012_sensorw;
 static struct i2c_client *mt9p012_client;
 
-struct mt9p012_ctrl_t {
+struct mt9p012_ctrl {
 	const struct msm_camera_sensor_info *sensordata;
 
 	int sensormode;
@@ -113,21 +113,21 @@ struct mt9p012_ctrl_t {
 	uint16_t my_reg_gain;
 	uint32_t my_reg_line_count;
 
-	enum mt9p012_resolution_t prev_res;
-	enum mt9p012_resolution_t pict_res;
-	enum mt9p012_resolution_t curr_res;
-	enum mt9p012_test_mode_t  set_test;
+	enum mt9p012_resolution prev_res;
+	enum mt9p012_resolution pict_res;
+	enum mt9p012_resolution curr_res;
+	enum mt9p012_test_mode  set_test;
 };
 
 
-static struct mt9p012_ctrl_t *mt9p012_ctrl;
+static struct mt9p012_ctrl *mt9p012_ctrl;
 static DECLARE_WAIT_QUEUE_HEAD(mt9p012_wait_queue);
 DECLARE_MUTEX(mt9p012_sem);
 
 /*=============================================================
 	EXTERNAL DECLARATIONS
 ==============================================================*/
-extern struct mt9p012_reg_t mt9p012_regs;	/* from mt9p012_reg.c */
+extern struct mt9p012_reg mt9p012_regs;	/* from mt9p012_reg.c */
 
 
 
@@ -261,7 +261,7 @@ static int32_t mt9p012_i2c_write_w_table(
 	return rc;
 }
 
-static int32_t mt9p012_test(enum mt9p012_test_mode_t mo)
+static int32_t mt9p012_test(enum mt9p012_test_mode mo)
 {
 	int32_t rc = 0;
 
@@ -431,7 +431,7 @@ static int32_t mt9p012_write_exp_gain(uint16_t gain, uint32_t line)
 {
 	uint16_t max_legal_gain = 0x01FF;
 	uint32_t line_length_ratio = 0x00000400;
-	enum mt9p012_setting_t setting;
+	enum mt9p012_setting setting;
 	int32_t rc = 0;
 
 	CDBG("Line:%d mt9p012_write_exp_gain \n", __LINE__);
@@ -538,8 +538,8 @@ static int32_t mt9p012_set_pict_exp_gain(uint16_t gain, uint32_t line)
 	return rc;
 }
 
-static int32_t mt9p012_setting(enum mt9p012_reg_update_t rupdate,
-	enum mt9p012_setting_t rt)
+static int32_t mt9p012_setting(enum mt9p012_reg_update rupdate,
+	enum mt9p012_setting rt)
 {
 	int32_t rc = 0;
 
@@ -955,7 +955,7 @@ static int mt9p012_sensor_open_init(const struct msm_camera_sensor_info *data)
 {
 	int32_t  rc;
 
-	mt9p012_ctrl = kzalloc(sizeof(struct mt9p012_ctrl_t), GFP_KERNEL);
+	mt9p012_ctrl = kzalloc(sizeof(struct mt9p012_ctrl), GFP_KERNEL);
 	if (!mt9p012_ctrl) {
 		CDBG("mt9p012_init failed!\n");
 		rc = -ENOMEM;
@@ -1063,12 +1063,12 @@ static int32_t mt9p012_set_sensor_mode(int mode, int res)
 
 int mt9p012_sensor_config(void __user *argp)
 {
-	struct sensor_cfg_data_t cdata;
+	struct sensor_cfg_data cdata;
 	int rc = 0;
 
 	if (copy_from_user(&cdata,
 			(void *)argp,
-			sizeof(struct sensor_cfg_data_t)))
+			sizeof(struct sensor_cfg_data)))
 		return -EFAULT;
 
 	down(&mt9p012_sem);
@@ -1080,7 +1080,7 @@ int mt9p012_sensor_config(void __user *argp)
 				&(cdata.cfg.gfps.pictfps));
 
 		if (copy_to_user((void *)argp, &cdata,
-				sizeof(struct sensor_cfg_data_t)))
+				sizeof(struct sensor_cfg_data)))
 			rc = -EFAULT;
 		break;
 
@@ -1089,7 +1089,7 @@ int mt9p012_sensor_config(void __user *argp)
 
 		if (copy_to_user((void *)argp,
 				&cdata,
-				sizeof(struct sensor_cfg_data_t)))
+				sizeof(struct sensor_cfg_data)))
 			rc = -EFAULT;
 		break;
 
@@ -1098,7 +1098,7 @@ int mt9p012_sensor_config(void __user *argp)
 
 		if (copy_to_user((void *)argp,
 				&cdata,
-				sizeof(struct sensor_cfg_data_t)))
+				sizeof(struct sensor_cfg_data)))
 			rc = -EFAULT;
 		break;
 
@@ -1107,7 +1107,7 @@ int mt9p012_sensor_config(void __user *argp)
 
 		if (copy_to_user((void *)argp,
 				&cdata,
-				sizeof(struct sensor_cfg_data_t)))
+				sizeof(struct sensor_cfg_data)))
 			rc = -EFAULT;
 		break;
 
@@ -1116,7 +1116,7 @@ int mt9p012_sensor_config(void __user *argp)
 
 		if (copy_to_user((void *)argp,
 				&cdata,
-				sizeof(struct sensor_cfg_data_t)))
+				sizeof(struct sensor_cfg_data)))
 			rc = -EFAULT;
 		break;
 
@@ -1126,7 +1126,7 @@ int mt9p012_sensor_config(void __user *argp)
 
 		if (copy_to_user((void *)argp,
 				&cdata,
-				sizeof(struct sensor_cfg_data_t)))
+				sizeof(struct sensor_cfg_data)))
 			rc = -EFAULT;
 		break;
 
@@ -1174,7 +1174,7 @@ int mt9p012_sensor_config(void __user *argp)
 		cdata.max_steps = MT9P012_STEPS_NEAR_TO_CLOSEST_INF;
 		if (copy_to_user((void *)argp,
 				&cdata,
-				sizeof(struct sensor_cfg_data_t)))
+				sizeof(struct sensor_cfg_data)))
 			rc = -EFAULT;
 		break;
 
@@ -1223,7 +1223,7 @@ static int mt9p012_i2c_probe(struct i2c_client *client,
 		goto probe_failure;
 	}
 
-	mt9p012_sensorw = kzalloc(sizeof(struct mt9p012_work_t), GFP_KERNEL);
+	mt9p012_sensorw = kzalloc(sizeof(struct mt9p012_work), GFP_KERNEL);
 	if (!mt9p012_sensorw) {
 		CDBG("kzalloc failed.\n");
 		rc = -ENOMEM;
@@ -1259,7 +1259,7 @@ static struct i2c_driver mt9p012_i2c_driver = {
 };
 
 static int mt9p012_sensor_probe(const struct msm_camera_sensor_info *info,
-				struct msm_sensor_ctrl_t *s)
+				struct msm_sensor_ctrl *s)
 {
 	int rc = i2c_add_driver(&mt9p012_i2c_driver);
 	if (rc < 0 || mt9p012_client == NULL) {

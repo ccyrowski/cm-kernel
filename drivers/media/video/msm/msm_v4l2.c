@@ -43,7 +43,7 @@
 
 #define PREVIEW_FRAMES_NUM 4
 
-struct msm_v4l2_device_t {
+struct msm_v4l2_device {
 	struct list_head read_queue;
 	struct v4l2_format current_cap_format;
 	struct v4l2_format current_pix_format;
@@ -54,7 +54,7 @@ struct msm_v4l2_device_t {
 	spinlock_t read_queue_lock;
 };
 
-static struct msm_v4l2_device_t *g_pmsm_v4l2_dev;
+static struct msm_v4l2_device *g_pmsm_v4l2_dev;
 
 
 static DEFINE_MUTEX(msm_v4l2_opencnt_lock);
@@ -98,14 +98,14 @@ static unsigned int msm_v4l2_poll(struct file *f, struct poll_table_struct *w)
 static long msm_v4l2_ioctl(struct file *filep,
 			   unsigned int cmd, unsigned long arg)
 {
-	struct msm_ctrl_cmd_t *ctrlcmd;
+	struct msm_ctrl_cmd *ctrlcmd;
 
 	D("msm_v4l2_ioctl, cmd = %d, %d\n", cmd, __LINE__);
 
 	switch (cmd) {
 	case MSM_V4L2_START_SNAPSHOT:
 
-		ctrlcmd = kmalloc(sizeof(struct msm_ctrl_cmd_t), GFP_ATOMIC);
+		ctrlcmd = kmalloc(sizeof(struct msm_ctrl_cmd), GFP_ATOMIC);
 		if (!ctrlcmd) {
 			CDBG("msm_v4l2_ioctl: cannot allocate buffer\n");
 			return -ENOMEM;
@@ -123,7 +123,7 @@ static long msm_v4l2_ioctl(struct file *filep,
 
 	case MSM_V4L2_GET_PICTURE:
 		D("msm_v4l2_ioctl,  MSM_V4L2_GET_PICTURE v4l2 ioctl %d\n", cmd);
-		ctrlcmd = (struct msm_ctrl_cmd_t *)arg;
+		ctrlcmd = (struct msm_ctrl_cmd *)arg;
 		return g_pmsm_v4l2_dev->drv->get_pict(
 				g_pmsm_v4l2_dev->drv->sync, ctrlcmd);
 
@@ -159,11 +159,11 @@ static int msm_v4l2_queryctrl(struct file *f,
 				void *pctx, struct v4l2_queryctrl *pqctrl)
 {
   int rc = 0;
-  struct msm_ctrl_cmd_t *ctrlcmd;
+  struct msm_ctrl_cmd *ctrlcmd;
 
 	D("%s\n", __func__);
 
-	ctrlcmd = kmalloc(sizeof(struct msm_ctrl_cmd_t), GFP_ATOMIC);
+	ctrlcmd = kmalloc(sizeof(struct msm_ctrl_cmd), GFP_ATOMIC);
 	if (!ctrlcmd) {
 		CDBG("msm_v4l2_queryctrl: cannot allocate buffer\n");
 		return -ENOMEM;
@@ -184,11 +184,11 @@ static int msm_v4l2_queryctrl(struct file *f,
 static int msm_v4l2_g_ctrl(struct file *f, void *pctx, struct v4l2_control *c)
 {
 	int rc = 0;
-	struct msm_ctrl_cmd_t *ctrlcmd;
+	struct msm_ctrl_cmd *ctrlcmd;
 
 	D("%s\n", __func__);
 
-	ctrlcmd = kmalloc(sizeof(struct msm_ctrl_cmd_t), GFP_ATOMIC);
+	ctrlcmd = kmalloc(sizeof(struct msm_ctrl_cmd), GFP_ATOMIC);
 	if (!ctrlcmd) {
 		CDBG("msm_v4l2_g_ctrl: cannot allocate buffer\n");
 		return -ENOMEM;
@@ -209,9 +209,9 @@ static int msm_v4l2_g_ctrl(struct file *f, void *pctx, struct v4l2_control *c)
 static int msm_v4l2_s_ctrl(struct file *f, void *pctx, struct v4l2_control *c)
 {
 	int rc = 0;
-	struct msm_ctrl_cmd_t *ctrlcmd;
+	struct msm_ctrl_cmd *ctrlcmd;
 
-	ctrlcmd = kmalloc(sizeof(struct msm_ctrl_cmd_t), GFP_ATOMIC);
+	ctrlcmd = kmalloc(sizeof(struct msm_ctrl_cmd), GFP_ATOMIC);
 	if (!ctrlcmd) {
 		CDBG("msm_v4l2_s_ctrl: cannot allocate buffer\n");
 		return -ENOMEM;
@@ -240,7 +240,7 @@ static int msm_v4l2_reqbufs(struct file *f,
 
 static int msm_v4l2_querybuf(struct file *f, void *pctx, struct v4l2_buffer *pb)
 {
-	struct msm_pmem_info_t pmem_buf;
+	struct msm_pmem_info pmem_buf;
 #if 0
 	__u32 width = 0;
 	__u32 height = 0;
@@ -262,7 +262,7 @@ static int msm_v4l2_querybuf(struct file *f, void *pctx, struct v4l2_buffer *pb)
 
 	/* V4L2 videodev will do the copy_from_user. */
 
-	memset(&pmem_buf, 0, sizeof(struct msm_pmem_info_t));
+	memset(&pmem_buf, 0, sizeof(struct msm_pmem_info));
 	pmem_buf.type = MSM_PMEM_OUTPUT2;
 	pmem_buf.vaddr = (void *)pb->m.userptr;
 	pmem_buf.y_off = 0;
@@ -286,8 +286,8 @@ static int msm_v4l2_qbuf(struct file *f, void *pctx, struct v4l2_buffer *pb)
 
 	__u32 y_pad = 0;
 
-	struct msm_pmem_info_t meminfo;
-	struct msm_frame_t frame;
+	struct msm_pmem_info meminfo;
+	struct msm_frame frame;
 	static int cnt;
 
 	if ((pb->flags >> 16) & 0x0001) {
@@ -373,7 +373,7 @@ static int msm_v4l2_qbuf(struct file *f, void *pctx, struct v4l2_buffer *pb)
 
 static int msm_v4l2_dqbuf(struct file *f, void *pctx, struct v4l2_buffer *pb)
 {
-	struct msm_frame_t frame;
+	struct msm_frame frame;
 	D("%s\n", __func__);
 
 	/* V4L2 videodev will do the copy_to_user. */
@@ -411,9 +411,9 @@ static int msm_v4l2_dqbuf(struct file *f, void *pctx, struct v4l2_buffer *pb)
 
 static int msm_v4l2_streamon(struct file *f, void *pctx, enum v4l2_buf_type i)
 {
-  struct msm_ctrl_cmd_t *ctrlcmd;
+  struct msm_ctrl_cmd *ctrlcmd;
 
-	ctrlcmd = kmalloc(sizeof(struct msm_ctrl_cmd_t), GFP_ATOMIC);
+	ctrlcmd = kmalloc(sizeof(struct msm_ctrl_cmd), GFP_ATOMIC);
 	if (!ctrlcmd) {
 		CDBG("msm_v4l2_s_fmt_cap: cannot allocate buffer\n");
 		return -ENOMEM;
@@ -437,9 +437,9 @@ static int msm_v4l2_streamon(struct file *f, void *pctx, enum v4l2_buf_type i)
 
 static int msm_v4l2_streamoff(struct file *f, void *pctx, enum v4l2_buf_type i)
 {
-  struct msm_ctrl_cmd_t *ctrlcmd;
+  struct msm_ctrl_cmd *ctrlcmd;
 
-	ctrlcmd = kmalloc(sizeof(struct msm_ctrl_cmd_t), GFP_ATOMIC);
+	ctrlcmd = kmalloc(sizeof(struct msm_ctrl_cmd), GFP_ATOMIC);
 	if (!ctrlcmd) {
 		CDBG("msm_v4l2_s_fmt_cap: cannot allocate buffer\n");
 		return -ENOMEM;
@@ -506,11 +506,11 @@ static int msm_v4l2_g_fmt_cap(struct file *f,
 static int msm_v4l2_s_fmt_cap(struct file *f,
 			      void *pctx, struct v4l2_format *pfmt)
 {
-  struct msm_ctrl_cmd_t *ctrlcmd;
+  struct msm_ctrl_cmd *ctrlcmd;
 
 	D("%s\n", __func__);
 
-	ctrlcmd = kmalloc(sizeof(struct msm_ctrl_cmd_t), GFP_ATOMIC);
+	ctrlcmd = kmalloc(sizeof(struct msm_ctrl_cmd), GFP_ATOMIC);
 	if (!ctrlcmd) {
 		CDBG("msm_v4l2_s_fmt_cap: cannot allocate buffer\n");
 		return -ENOMEM;
@@ -642,7 +642,7 @@ static const struct v4l2_file_operations msm_v4l2_fops = {
 	.ioctl = msm_v4l2_ioctl,
 };
 
-static void msm_v4l2_dev_init(struct msm_v4l2_device_t *pmsm_v4l2_dev)
+static void msm_v4l2_dev_init(struct msm_v4l2_device *pmsm_v4l2_dev)
 {
 	pmsm_v4l2_dev->read_queue_lock =
 	    __SPIN_LOCK_UNLOCKED(pmsm_v4l2_dev->read_queue_lock);
@@ -716,7 +716,7 @@ static int __init msm_v4l2_init(void)
 {
 	int rc = -ENOMEM;
 	struct video_device *pvdev = NULL;
-	struct msm_v4l2_device_t *pmsm_v4l2_dev = NULL;
+	struct msm_v4l2_device *pmsm_v4l2_dev = NULL;
 	D("%s\n", __func__);
 
 	pvdev = video_device_alloc();
@@ -724,7 +724,7 @@ static int __init msm_v4l2_init(void)
 		return rc;
 
 	pmsm_v4l2_dev =
-		kzalloc(sizeof(struct msm_v4l2_device_t), GFP_KERNEL);
+		kzalloc(sizeof(struct msm_v4l2_device), GFP_KERNEL);
 	if (pmsm_v4l2_dev == NULL) {
 		video_device_release(pvdev);
 		return rc;
