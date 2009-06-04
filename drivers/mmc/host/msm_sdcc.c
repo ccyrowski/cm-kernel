@@ -64,6 +64,7 @@ static unsigned int msmsdcc_4bit = 1;
 static unsigned int msmsdcc_pwrsave = 1;
 static unsigned int msmsdcc_sdioirq = 0;
 
+static unsigned int num_irqs_reduced = 0;
 #define VERBOSE_COMMAND_TIMEOUTS	1
 
 #if IRQ_DEBUG == 1
@@ -507,12 +508,13 @@ msmsdcc_pio_irq(int irq, void *dev_id)
 	struct msmsdcc_host	*host = dev_id;
 	void __iomem		*base = host->base;
 	uint32_t		status;
+	int			dbg_latch = 0;
 
 	status = readl(base + MMCISTATUS);
 #if IRQ_DEBUG
 	msmsdcc_print_status(host, "irq1-r", status);
 #endif
-
+ 
 	do {
 		unsigned long flags;
 		unsigned int remain, len;
@@ -521,13 +523,17 @@ msmsdcc_pio_irq(int irq, void *dev_id)
 		if (!(status & (MCI_TXFIFOHALFEMPTY | MCI_RXDATAAVLBL)))
 			break;
 
+		if (dbg_latch) {
+			num_irqs_reduced++;
+			dbg_latch = 0;
+		}
+
 		/* Map the current scatter buffer */
 		local_irq_save(flags);
 		buffer = kmap_atomic(sg_page(host->pio.sg),
 				     KM_BIO_SRC_IRQ) + host->pio.sg->offset;
 		buffer += host->pio.sg_off;
 		remain = host->pio.sg->length - host->pio.sg_off;
-
 		len = 0;
 		if (status & MCI_RXACTIVE)
 			len = msmsdcc_pio_read(host, buffer, remain);
@@ -543,20 +549,23 @@ msmsdcc_pio_irq(int irq, void *dev_id)
 		host->curr.data_xfered += len;
 		remain -= len;
 
-		if (remain) /* Done with this page? */
-			break; /* Nope */
+		if (remain && host->curr.xfer_remain)
+			dbg_latch = 1;
 
-		if (status & MCI_RXACTIVE && host->curr.user_pages)
-			flush_dcache_page(sg_page(host->pio.sg));
+		if (remain == 0) {
+			/* This sg page is full - do some housekeeping */
+			if (status & MCI_RXACTIVE && host->curr.user_pages)
+				flush_dcache_page(sg_page(host->pio.sg));
 
-		if (!--host->pio.sg_len) {
-			memset(&host->pio, 0, sizeof(host->pio));
-			break;
+			if (!--host->pio.sg_len) {
+				memset(&host->pio, 0, sizeof(host->pio));
+				break;
+			}
+
+			/* Advance to next sg */
+			host->pio.sg++;
+			host->pio.sg_off = 0;
 		}
-
-		/* Advance to next sg */
-		host->pio.sg++;
-		host->pio.sg_off = 0;
 
 		status = readl(base + MMCISTATUS);
 	} while (1);
@@ -1422,7 +1431,6 @@ msmsdcc_dbg_state_read(struct file *file, char __user *ubuf,
 
 	i = 0;
 	max = sizeof(buf) - 1;
-
 	i += scnprintf(buf + i, max - i, "STAT: %p %p %p\n", host->curr.mrq,
 		       host->curr.cmd, host->curr.data);
 	if (host->curr.cmd) {
@@ -1431,6 +1439,7 @@ msmsdcc_dbg_state_read(struct file *file, char __user *ubuf,
 		i += scnprintf(buf + i, max - i, "CMD : %.8x %.8x %.8x\n",
 			      cmd->opcode, cmd->arg, cmd->flags);
 	}
+
 	if (host->curr.data) {
 		struct mmc_data *data = host->curr.data;
 		i += scnprintf(buf + i, max - i,
@@ -1442,6 +1451,9 @@ msmsdcc_dbg_state_read(struct file *file, char __user *ubuf,
 			      host->curr.xfer_size, host->curr.xfer_remain,
 			      host->curr.data_xfered, host->dma.sg);
 	}
+
+	i += scnprintf(buf + i, max - i, "num_irqs_reduced %d\n",
+		       num_irqs_reduced);
 
 	return simple_read_from_buffer(ubuf, count, ppos, buf, i);
 }
