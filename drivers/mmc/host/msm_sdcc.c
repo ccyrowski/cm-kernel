@@ -63,8 +63,12 @@ static unsigned int msmsdcc_fmax = 50000000;
 static unsigned int msmsdcc_4bit = 1;
 static unsigned int msmsdcc_pwrsave = 1;
 static unsigned int msmsdcc_sdioirq = 0;
+static unsigned int msmsdcc_piopoll = 1;
 
 static unsigned int num_irqs_reduced = 0;
+
+#define SPIN_MAX 500
+
 #define VERBOSE_COMMAND_TIMEOUTS	1
 
 #if IRQ_DEBUG == 1
@@ -520,8 +524,29 @@ msmsdcc_pio_irq(int irq, void *dev_id)
 		unsigned int remain, len;
 		char *buffer;
 
-		if (!(status & (MCI_TXFIFOHALFEMPTY | MCI_RXDATAAVLBL)))
-			break;
+		if (!(status & (MCI_TXFIFOHALFEMPTY | MCI_RXDATAAVLBL))) {
+			unsigned int spin_cycle = SPIN_MAX;
+			if (host->curr.xfer_remain == 0 ||
+			    msmsdcc_piopoll == 0) {
+				break;
+                        }
+
+			/* In 'piopoll' mode we spin until the transfer 
+			   is complete */
+			while(spin_cycle) {
+				status = readl(base + MMCISTATUS);
+
+				if ((status & MCI_TXFIFOHALFEMPTY) ||
+				    (status & MCI_RXDATAAVLBL)) {
+					break;
+				}
+				udelay(1);
+				--spin_cycle;
+			}
+
+			if (!spin_cycle)
+				break;
+		}
 
 		if (dbg_latch) {
 			num_irqs_reduced++;
@@ -1338,6 +1363,18 @@ static void __exit msmsdcc_exit(void)
 	platform_driver_unregister(&msmsdcc_driver);
 }
 
+static int __init msmsdcc_piopoll_setup(char *__unused)
+{
+	msmsdcc_piopoll = 1;
+	return 1;
+}
+
+static int __init msmsdcc_nopiopoll_setup(char *__unused)
+{
+	msmsdcc_piopoll = 0;
+	return 1;
+}
+
 static int __init msmsdcc_pwrsave_setup(char *__unused)
 {
 	msmsdcc_pwrsave = 1;
@@ -1402,6 +1439,8 @@ __setup("msmsdcc_sdioirq", msmsdcc_sdioirq_setup);
 __setup("msmsdcc_nosdioirq", msmsdcc_nosdioirq_setup);
 __setup("msmsdcc_fmin=", msmsdcc_fmin_setup);
 __setup("msmsdcc_fmax=", msmsdcc_fmax_setup);
+__setup("msmsdcc_piopoll", msmsdcc_piopoll_setup);
+__setup("msmsdcc_nopiopoll", msmsdcc_nopiopoll_setup);
 
 module_init(msmsdcc_init);
 module_exit(msmsdcc_exit);
