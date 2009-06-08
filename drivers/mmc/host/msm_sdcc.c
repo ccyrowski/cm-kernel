@@ -65,9 +65,8 @@ static unsigned int msmsdcc_pwrsave = 1;
 static unsigned int msmsdcc_sdioirq = 0;
 static unsigned int msmsdcc_piopoll = 1;
 
-static unsigned int num_irqs_reduced = 0;
-
-#define SPIN_MAX 500
+#define PIO_SPINMAX 30
+#define CMD_SPINMAX 20
 
 #define VERBOSE_COMMAND_TIMEOUTS	1
 
@@ -426,6 +425,8 @@ msmsdcc_start_command(struct msmsdcc_host *host, struct mmc_command *cmd, u32 c)
 
 	host->curr.cmd = cmd;
 
+	host->stats.cmds++;
+
 	writel(cmd->arg, base + MMCIARGUMENT);
 	writel(c, base + MMCICOMMAND);
 }
@@ -507,12 +508,23 @@ msmsdcc_pio_write(struct msmsdcc_host *host, char *buffer,
 }
 
 static int
+msmsdcc_spin_on_status(struct msmsdcc_host *host, uint32_t mask, int maxspin)
+{
+	while(maxspin) {
+		if ((readl(host->base + MMCISTATUS) & mask))
+			return 0;
+		udelay(1);
+		--maxspin;
+	}
+	return -ETIMEDOUT;
+}
+
+static int
 msmsdcc_pio_irq(int irq, void *dev_id)
 {
 	struct msmsdcc_host	*host = dev_id;
 	void __iomem		*base = host->base;
 	uint32_t		status;
-	int			dbg_latch = 0;
 
 	status = readl(base + MMCISTATUS);
 #if IRQ_DEBUG
@@ -525,32 +537,15 @@ msmsdcc_pio_irq(int irq, void *dev_id)
 		char *buffer;
 
 		if (!(status & (MCI_TXFIFOHALFEMPTY | MCI_RXDATAAVLBL))) {
-			unsigned int spin_cycle = SPIN_MAX;
-			if (host->curr.xfer_remain == 0 ||
-			    msmsdcc_piopoll == 0) {
+			if (host->curr.xfer_remain == 0 || !msmsdcc_piopoll)
 				break;
-                        }
 
-			/* In 'piopoll' mode we spin until the transfer 
-			   is complete */
-			while(spin_cycle) {
-				status = readl(base + MMCISTATUS);
-
-				if ((status & MCI_TXFIFOHALFEMPTY) ||
-				    (status & MCI_RXDATAAVLBL)) {
-					break;
-				}
-				udelay(1);
-				--spin_cycle;
+			if (msmsdcc_spin_on_status(host,
+						   (MCI_TXFIFOHALFEMPTY |
+						   MCI_RXDATAAVLBL),
+						   PIO_SPINMAX)) {
+				break;
 			}
-
-			if (!spin_cycle)
-				break;
-		}
-
-		if (dbg_latch) {
-			num_irqs_reduced++;
-			dbg_latch = 0;
 		}
 
 		/* Map the current scatter buffer */
@@ -573,9 +568,6 @@ msmsdcc_pio_irq(int irq, void *dev_id)
 		host->curr.xfer_remain -= len;
 		host->curr.data_xfered += len;
 		remain -= len;
-
-		if (remain && host->curr.xfer_remain)
-			dbg_latch = 1;
 
 		if (remain == 0) {
 			/* This sg page is full - do some housekeeping */
@@ -604,6 +596,44 @@ msmsdcc_pio_irq(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+static void msmsdcc_do_cmdirq(struct msmsdcc_host *host, uint32_t status)
+{
+	struct mmc_command *cmd = host->curr.cmd;
+	void __iomem	   *base = host->base;
+
+	host->curr.cmd = NULL;
+	cmd->resp[0] = readl(base + MMCIRESPONSE0);
+	cmd->resp[1] = readl(base + MMCIRESPONSE1);
+	cmd->resp[2] = readl(base + MMCIRESPONSE2);
+	cmd->resp[3] = readl(base + MMCIRESPONSE3);
+
+	del_timer(&host->command_timer);
+	if (status & MCI_CMDTIMEOUT) {
+#if VERBOSE_COMMAND_TIMEOUTS
+		printk(KERN_ERR "%s: Command timeout\n",
+		       mmc_hostname(host->mmc));
+#endif
+		cmd->error = -ETIMEDOUT;
+	} else if (status & MCI_CMDCRCFAIL &&
+		   cmd->flags & MMC_RSP_CRC) {
+		printk(KERN_ERR "%s: Command CRC error\n",
+		       mmc_hostname(host->mmc));
+		cmd->error = -EILSEQ;
+	}
+
+	if (!cmd->data || cmd->error) {
+		if (host->curr.data && host->dma.sg)
+			msm_dmov_stop_cmd(host->dma.channel,
+					  &host->dma.hdr, 0);
+		else if (host->curr.data) { /* Non DMA */
+			msmsdcc_stop_data(host);
+			msmsdcc_request_end(host, cmd->mrq);
+		} else /* host->data == NULL */
+			msmsdcc_request_end(host, cmd->mrq);
+	} else if (!(cmd->data->flags & MMC_DATA_READ))
+		msmsdcc_start_data(host, cmd->data);
+}
+
 static irqreturn_t
 msmsdcc_irq(int irq, void *dev_id)
 {
@@ -616,17 +646,16 @@ msmsdcc_irq(int irq, void *dev_id)
 	spin_lock(&host->lock);
 
 	do {
-		struct mmc_command *cmd;
 		struct mmc_data *data;
-		status = readl(host->base + MMCISTATUS);
+		status = readl(base + MMCISTATUS);
 
 #if IRQ_DEBUG
 		msmsdcc_print_status(host, "irq0-r", status);
 #endif
 
-		status &= (readl(host->base + MMCIMASK0) |
+		status &= (readl(base + MMCIMASK0) |
 					      MCI_DATABLOCKENDMASK);
-		writel(status, host->base + MMCICLEAR);
+		writel(status, base + MMCICLEAR);
 #if IRQ_DEBUG
 		msmsdcc_print_status(host, "irq0-p", status);
 #endif
@@ -679,7 +708,7 @@ msmsdcc_irq(int irq, void *dev_id)
 					 * Check to see if theres still data
 					 * to be read, and simulate a PIO irq.
 					 */
-					if (readl(host->base + MMCISTATUS) &
+					if (readl(base + MMCISTATUS) &
 							       MCI_RXDATAAVLBL)
 						msmsdcc_pio_irq(1, host);
 
@@ -698,45 +727,11 @@ msmsdcc_irq(int irq, void *dev_id)
 			}
 		}
 
-
-		/*
-		 * Check for proper command response
-		 */
-		cmd = host->curr.cmd;
 		if (status & (MCI_CMDSENT | MCI_CMDRESPEND | MCI_CMDCRCFAIL |
-			      MCI_CMDTIMEOUT) && cmd) {
-			host->curr.cmd = NULL;
-			cmd->resp[0] = readl(base + MMCIRESPONSE0);
-			cmd->resp[1] = readl(base + MMCIRESPONSE1);
-			cmd->resp[2] = readl(base + MMCIRESPONSE2);
-			cmd->resp[3] = readl(base + MMCIRESPONSE3);
-
-			del_timer(&host->command_timer);
-			if (status & MCI_CMDTIMEOUT) {
-#if VERBOSE_COMMAND_TIMEOUTS
-				printk(KERN_ERR "%s: Command timeout\n",
-				       mmc_hostname(host->mmc));
-#endif
-				cmd->error = -ETIMEDOUT;
-			} else if (status & MCI_CMDCRCFAIL &&
-				   cmd->flags & MMC_RSP_CRC) {
-				printk(KERN_ERR "%s: Command CRC error\n",
-				       mmc_hostname(host->mmc));
-				cmd->error = -EILSEQ;
-			}
-
-			if (!cmd->data || cmd->error) {
-				if (host->curr.data && host->dma.sg)
-					msm_dmov_stop_cmd(host->dma.channel,
-							  &host->dma.hdr, 0);
-				else if (host->curr.data) { /* Non DMA */
-					msmsdcc_stop_data(host);
-					msmsdcc_request_end(host, cmd->mrq);
-				} else /* host->data == NULL */
-					msmsdcc_request_end(host, cmd->mrq);
-			} else if (!(cmd->data->flags & MMC_DATA_READ))
-				msmsdcc_start_data(host, cmd->data);
+			      MCI_CMDTIMEOUT) && host->curr.cmd) {
+			msmsdcc_do_cmdirq(host, status);
 		}
+
 		if (status & MCI_SDIOINTOPER) {
 			cardint = 1;
 			status &= ~MCI_SDIOINTOPER;
@@ -769,6 +764,8 @@ msmsdcc_request(struct mmc_host *mmc, struct mmc_request *mrq)
 
 	spin_lock_irqsave(&host->lock, flags);
 
+	host->stats.reqs++;
+
 	if (host->eject) {
 		if (mrq->data && !(mrq->data->flags & MMC_DATA_READ)) {
 			mrq->cmd->error = 0;
@@ -788,7 +785,19 @@ msmsdcc_request(struct mmc_host *mmc, struct mmc_request *mrq)
 		msmsdcc_start_data(host, mrq->data);
 
 	msmsdcc_start_command(host, mrq->cmd, 0);
-	mod_timer(&host->command_timer, jiffies + HZ);
+
+	if (host->cmdpoll && !msmsdcc_spin_on_status(host, 
+				MCI_CMDRESPEND|MCI_CMDCRCFAIL|MCI_CMDTIMEOUT,
+				CMD_SPINMAX)) {
+		uint32_t status = readl(host->base + MMCISTATUS);
+		msmsdcc_do_cmdirq(host, status);
+		writel(MCI_CMDRESPEND | MCI_CMDCRCFAIL | MCI_CMDTIMEOUT,
+		       host->base + MMCICLEAR);
+		host->stats.cmdpoll_hits++;
+	} else {
+		host->stats.cmdpoll_misses++;
+		mod_timer(&host->command_timer, jiffies + HZ);
+	}
 	spin_unlock_irqrestore(&host->lock, flags);
 }
 
@@ -1072,6 +1081,8 @@ msmsdcc_probe(struct platform_device *pdev)
 	host->pdev_id = pdev->id;
 	host->plat = plat;
 	host->mmc = mmc;
+
+	host->cmdpoll = 1;
 
 	host->base = ioremap(memres->start, PAGE_SIZE);
 	if (!host->base) {
@@ -1470,13 +1481,13 @@ msmsdcc_dbg_state_read(struct file *file, char __user *ubuf,
 
 	i = 0;
 	max = sizeof(buf) - 1;
-	i += scnprintf(buf + i, max - i, "STAT: %p %p %p\n", host->curr.mrq,
-		       host->curr.cmd, host->curr.data);
+
 	if (host->curr.cmd) {
 		struct mmc_command *cmd = host->curr.cmd;
 
-		i += scnprintf(buf + i, max - i, "CMD : %.8x %.8x %.8x\n",
-			      cmd->opcode, cmd->arg, cmd->flags);
+		i += scnprintf(buf + i, max - i,
+			       "CurrentCmd : opcode %d, arg 0x%.8x, flags 0x%.8x\n",
+			       cmd->opcode, cmd->arg, cmd->flags);
 	}
 
 	if (host->curr.data) {
@@ -1491,8 +1502,11 @@ msmsdcc_dbg_state_read(struct file *file, char __user *ubuf,
 			      host->curr.data_xfered, host->dma.sg);
 	}
 
-	i += scnprintf(buf + i, max - i, "num_irqs_reduced %d\n",
-		       num_irqs_reduced);
+	i += scnprintf(buf + i, max - i, "Requests : %u\n", host->stats.reqs);
+	i += scnprintf(buf + i, max - i, "Commands : %u\n", host->stats.cmds);
+	i += scnprintf(buf + i, max - i, "CmdPoll  : %d\n", host->cmdpoll);
+	i += scnprintf(buf + i, max - i, "PollHit  : %u\n", host->stats.cmdpoll_hits);
+	i += scnprintf(buf + i, max - i, "PollMiss : %u\n", host->stats.cmdpoll_misses);
 
 	return simple_read_from_buffer(ubuf, count, ppos, buf, i);
 }

@@ -191,6 +191,13 @@ struct msmsdcc_curr_req {
 	int			user_pages;
 };
 
+struct msmsdcc_stats {
+	unsigned int reqs;
+	unsigned int cmds;
+	unsigned int cmdpoll_hits;
+	unsigned int cmdpoll_misses;
+};
+
 struct msmsdcc_host {
 	struct resource		*cmd_irqres;
 	struct resource		*pio_irqres;
@@ -224,6 +231,8 @@ struct msmsdcc_host {
 
 	struct msmsdcc_dma_data	dma;
 	struct msmsdcc_pio_data	pio;
+	int			cmdpoll;
+	struct msmsdcc_stats	stats;
 
 #ifdef CONFIG_MMC_MSM7X00A_RESUME_IN_WQ
 	struct work_struct	resume_task;
