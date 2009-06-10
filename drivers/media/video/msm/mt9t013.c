@@ -431,7 +431,7 @@ static int32_t mt9t013_set_fps(struct fps_cfg *fps)
 
 static int32_t mt9t013_write_exp_gain(uint16_t gain, uint32_t line)
 {
-	uint16_t max_legal_gain = 0x01FF;
+	const uint16_t max_legal_gain = 0x01FF;
 	uint32_t line_length_ratio = 0x00000400;
 	enum mt9t013_setting setting;
 	int32_t rc = 0;
@@ -441,7 +441,7 @@ static int32_t mt9t013_write_exp_gain(uint16_t gain, uint32_t line)
 		mt9t013_ctrl->my_reg_line_count = (uint16_t) line;
 	}
 
-	if (gain > 0x00000400)
+	if (gain > max_legal_gain)
 		gain = max_legal_gain;
 
 	/* Verify no overflow */
