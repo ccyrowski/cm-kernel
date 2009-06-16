@@ -110,6 +110,7 @@ static struct msm_hsusb_product usb_products[] = {
 struct msm_hsusb_platform_data msm_hsusb_pdata = {
 	.phy_reset = internal_phy_reset,
 	.phy_init_seq = hsusb_phy_init_seq,
+	.usb_connected = notify_usb_connected,
 #ifdef CONFIG_USB_FUNCTION
 	.vendor_id = 0x0bb4,
 	.product_id = 0x0c02,

@@ -36,7 +36,6 @@
 #include <asm/mach-types.h>
 
 #include <mach/board.h>
-#include <mach/board_htc.h>
 #include <mach/msm_hsusb.h>
 
 #define MSM_USB_BASE ((unsigned) ui->addr)
@@ -172,6 +171,9 @@ struct usb_info
 
 	int *phy_init_seq;
 	void (*phy_reset)(void);
+
+	/* for notification when USB is connected or disconnected */
+	void (*usb_connected)(int);
 
 	struct work_struct work;
 	unsigned phy_status;
@@ -887,52 +889,6 @@ static void flush_all_endpoints(struct usb_info *ui)
 		flush_endpoint_sw(ui->ept + n);
 }
 
-/* add usb_connected notify behavior ===== */
-static DEFINE_MUTEX(notify_sem);
-static atomic_t atomic_usb_connected = ATOMIC_INIT(0);
-static struct work_struct usb_connect_notifier_wq;
-
-static void send_usb_connect_notify(struct work_struct *send_usb_wq)
-{
-	static struct t_usb_status_notifier *notifier = NULL;
-
-	mutex_lock(&notify_sem);
-	list_for_each_entry(notifier,
-		&g_lh_usb_notifier_list,
-		notifier_link)	{
-			if(notifier->func != NULL)	{
-				/* Notify other drivers about USB online. */
-				notifier->func(atomic_read(&atomic_usb_connected));
-			}
-		}
-	mutex_unlock(&notify_sem);
-}
-
-int usb_register_notifier(struct t_usb_status_notifier *notifier)
-{
-	if (!notifier || !notifier->name || !notifier->func)
-		return -EINVAL;
-
-	mutex_lock(&notify_sem);
-	list_add(&notifier->notifier_link,
-		&g_lh_usb_notifier_list);
-	mutex_unlock(&notify_sem);
-	return 0;
-}
-
-#ifdef MSM_HSUSB_SHOW_USB_NOTIFIER_MESSAGE
-static void usb_notify_connected(int connected)
-{
-	printk(KERN_DEBUG "\n\n%s() RUN(%d)...............\n\n\n", __func__, connected);
-}
-
-static struct t_usb_status_notifier usb_notifier = {
-	.name = "usb_connected",
-	.func = usb_notify_connected,
-};
-#endif /* MSM_HSUSB_SHOW_USB_NOTIFIER_MESSAGE */
-/* END: add usb_connected notify behavior ===== */
-
 static irqreturn_t usb_interrupt(int irq, void *data)
 {
 	struct usb_info *ui = data;
@@ -981,10 +937,6 @@ static irqreturn_t usb_interrupt(int irq, void *data)
 			 */
 			set_configuration(ui);
 		}
-		if(atomic_read(&atomic_usb_connected) == 0)	{
-			atomic_set(&atomic_usb_connected, 1);
-			schedule_work(&usb_connect_notifier_wq);
-		}
 	}
 
 	if (n & STS_SLI)
@@ -1026,11 +978,6 @@ static void usb_prepare(struct usb_info *ui)
 	ui->setup_req = usb_ept_alloc_req(&ui->ep0in, SETUP_BUF_SIZE);
 
 	INIT_WORK(&ui->work, usb_do_work);
-#ifdef MSM_HSUSB_SHOW_USB_NOTIFIER_MESSAGE
-	usb_register_notifier(&usb_notifier);
-#endif
-	INIT_WORK(&usb_connect_notifier_wq, send_usb_connect_notify);
-
 }
 
 static void usb_suspend_phy(struct usb_info *ui)
@@ -1341,12 +1288,12 @@ static void usb_do_work(struct work_struct *w)
 				/* prevent irq context stuff from doing anything */
 				spin_lock_irqsave(&ui->lock, iflags);
 
-				if(atomic_read(&atomic_usb_connected) == 1)
-					atomic_set(&atomic_usb_connected, 0);
-
 				ui->running = 0;
 				ui->online = 0;
 				spin_unlock_irqrestore(&ui->lock, iflags);
+
+				if (ui->usb_connected)
+					ui->usb_connected(0);
 				
 				/* terminate any transactions, etc */
 				flush_all_endpoints(ui);
@@ -1379,6 +1326,9 @@ static void usb_do_work(struct work_struct *w)
 				clk_enable(ui->clk);
 				clk_enable(ui->pclk);
 				usb_reset(ui);
+
+				if (ui->usb_connected)
+					ui->usb_connected(1);
 
 				ui->state = USB_STATE_ONLINE;
 				usb_do_work_check_vbus(ui);
@@ -1559,6 +1509,7 @@ static int usb_probe(struct platform_device *pdev)
 		struct msm_hsusb_platform_data *pdata = pdev->dev.platform_data;
 		ui->phy_reset = pdata->phy_reset;
 		ui->phy_init_seq = pdata->phy_init_seq;
+		ui->usb_connected = pdata->usb_connected;
 		
 		/* USB device descriptor fields */		
 		desc_device.idVendor = pdata->vendor_id;

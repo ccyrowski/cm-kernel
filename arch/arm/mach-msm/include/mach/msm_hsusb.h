@@ -38,6 +38,9 @@ struct msm_hsusb_platform_data {
 	/* hard reset the ULPI PHY */
 	void (*phy_reset)(void);
 
+	/* for notification when USB is connected or disconnected */
+	void (*usb_connected)(int);
+
 	/* val, reg pairs terminated by -1 */
 	int *phy_init_seq;
 
