@@ -167,15 +167,10 @@ struct register_address_value_pair {
 
 struct msm_pmem_region {
 	struct hlist_node list;
-	int type;
-	void *vaddr;
 	unsigned long paddr;
 	unsigned long len;
 	struct file *file;
-	uint32_t y_off;
-	uint32_t cbcr_off;
-	int fd;
-	uint8_t  active;
+	struct msm_pmem_info info;
 };
 
 struct axidata {

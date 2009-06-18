@@ -57,10 +57,10 @@ static void vfe_config_axi(int mode,
 			for (j = 0;
 				j < ao->output1.fragmentCount; j++) {
 
-				*p1 = regptr->paddr + regptr->y_off;
+				*p1 = regptr->paddr + regptr->info.y_off;
 				p1++;
 
-				*p2 = regptr->paddr + regptr->cbcr_off;
+				*p2 = regptr->paddr + regptr->info.cbcr_off;
 				p2++;
 			}
 			regptr++;
@@ -79,16 +79,16 @@ static void vfe_config_axi(int mode,
 			p2 = &(ao->output2.outputCbcr.outFragments[i][0]);
 
 		CDBG("config_axi: O2, phy = 0x%lx, y_off = %d, cbcr_off = %d\n",
-			regptr->paddr, regptr->y_off, regptr->cbcr_off);
+			regptr->paddr, regptr->info.y_off, regptr->info.cbcr_off);
 
 			for (j = 0;
 				j < ao->output2.fragmentCount; j++) {
 
-				*p1 = regptr->paddr + regptr->y_off;
+				*p1 = regptr->paddr + regptr->info.y_off;
 				CDBG("vfe_config_axi: p1 = 0x%x\n", *p1);
 				p1++;
 
-				*p2 = regptr->paddr + regptr->cbcr_off;
+				*p2 = regptr->paddr + regptr->info.cbcr_off;
 				CDBG("vfe_config_axi: p2 = 0x%x\n", *p2);
 				p2++;
 			}
