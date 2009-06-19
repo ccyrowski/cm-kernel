@@ -109,6 +109,24 @@ static int check_overlap(struct hlist_head *ptype,
 	return 0;
 }
 
+static int check_pmem_info(struct msm_pmem_info *info, int len)
+{
+	if (info->offset < len &&
+	    info->offset + info->len <= len &&
+	    info->y_off < len &&
+	    info->cbcr_off < len)
+		return 0;
+
+	pr_err("%s: check failed: off %d len %d y %d cbcr %d (total len %d)\n",
+		__func__,
+		info->offset,
+		info->len,
+		info->y_off,
+		info->cbcr_off,
+		len);
+	return -EINVAL;
+}
+
 static int msm_pmem_table_add(struct hlist_head *ptype,
 	struct msm_pmem_info *info)
 {
@@ -121,10 +139,21 @@ static int msm_pmem_table_add(struct hlist_head *ptype,
 
 	rc = get_pmem_file(info->fd, &paddr, &kvstart, &len, &file);
 	if (rc < 0) {
-		pr_err("msm_pmem_table_add: get_pmem_file fd %d error %d\n",
+		pr_err("%s: get_pmem_file fd %d error %d\n",
+			__func__,
 			info->fd, rc);
 		return rc;
 	}
+
+	if (!info->len)
+		info->len = len;
+
+	rc = check_pmem_info(info, len);
+	if (rc < 0)
+		return rc;
+
+	paddr += info->offset;
+	len = info->len;
 
 	if (check_overlap(ptype, paddr, len) < 0)
 		return -EINVAL;

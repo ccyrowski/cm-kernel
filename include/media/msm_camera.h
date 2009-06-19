@@ -203,8 +203,10 @@ struct msm_pmem_info {
 	int type;
 	int fd;
 	void *vaddr;
-	uint32_t y_off;
-	uint32_t cbcr_off;
+	uint32_t offset;
+	uint32_t len;
+	uint32_t y_off; /* relative to offset */
+	uint32_t cbcr_off; /* relative to offset */
 	uint8_t active;
 };
 
