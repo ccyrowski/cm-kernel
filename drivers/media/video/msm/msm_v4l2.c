@@ -348,7 +348,7 @@ static int msm_v4l2_qbuf(struct file *f, void *pctx, struct v4l2_buffer *pb)
 
 		y_size = pb->bytesused;
 
-		meminfo.type = MSM_PMEM_THUMBAIL;
+		meminfo.type = MSM_PMEM_THUMBNAIL;
 	} else if ((pb->flags >> 9) & 0x01) {
 
 		y_size = pb->bytesused;

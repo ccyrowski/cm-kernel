@@ -185,7 +185,7 @@ struct camera_enable_cmd {
 #define MSM_PMEM_OUTPUT1		0
 #define MSM_PMEM_OUTPUT2		1
 #define MSM_PMEM_OUTPUT1_OUTPUT2	2
-#define MSM_PMEM_THUMBAIL		3
+#define MSM_PMEM_THUMBNAIL		3
 #define MSM_PMEM_MAINIMG		4
 #define MSM_PMEM_RAW_MAINIMG		5
 #define MSM_PMEM_AEC_AWB		6
