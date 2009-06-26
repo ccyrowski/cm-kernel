@@ -419,9 +419,11 @@ static int msm_get_frame(struct msm_sync *sync, void __user *arg)
 		return rc;
 
 	if (sync->croplen) {
-		if (frame.croplen > sync->croplen) {
-			pr_err("msm_get_frame: invalid frame croplen %d\n",
-				frame.croplen);
+		if (frame.croplen != sync->croplen) {
+			pr_err("msm_get_frame: invalid frame croplen %d,"
+				"expecting %d\n",
+				frame.croplen,
+				sync->croplen);
 			return -EINVAL;
 		}
 
@@ -1331,9 +1333,10 @@ static int msm_get_pic(struct msm_sync *sync, void __user *arg)
 		return rc;
 
 	if (sync->croplen) {
-		if (ctrlcmd_t.length < sync->croplen) {
-			pr_err("msm_get_pic: invalid len %d\n",
-				ctrlcmd_t.length);
+		if (ctrlcmd_t.length != sync->croplen) {
+			pr_err("msm_get_pic: invalid len %d < %d\n",
+				ctrlcmd_t.length,
+				sync->croplen);
 			return -EINVAL;
 		}
 		if (copy_to_user(ctrlcmd_t.value,
