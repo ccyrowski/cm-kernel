@@ -409,8 +409,9 @@ static int __init rmnet_init(void)
 #endif
 #endif
 
-
+#ifdef CONFIG_MSM_RMNET_DEBUG
 	rmnet_wq = create_workqueue("rmnet");
+#endif
 
 	for (n = 0; n < 3; n++) {
 		dev = alloc_netdev(sizeof(struct rmnet_private),
