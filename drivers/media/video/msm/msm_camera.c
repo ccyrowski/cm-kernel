@@ -718,6 +718,7 @@ static int msm_get_stats(struct msm_sync *sync, void __user *arg)
 					data->evt_msg.len)) {
 				ERR_COPY_TO_USER();
 				rc = -EFAULT;
+				goto failure;
 			}
 		} else if (data->type == VFE_MSG_OUTPUT1 ||
 			data->type == VFE_MSG_OUTPUT2) {
@@ -726,6 +727,7 @@ static int msm_get_stats(struct msm_sync *sync, void __user *arg)
 					data->extlen)) {
 				ERR_COPY_TO_USER();
 				rc = -EFAULT;
+				goto failure;
 			}
 		} else if (data->type == VFE_MSG_SNAPSHOT && sync->pict_pp) {
 			struct msm_postproc buf;
@@ -754,6 +756,7 @@ static int msm_get_stats(struct msm_sync *sync, void __user *arg)
 					pr_err("%s: pmem lookup failed\n",
 						__func__);
 					rc = -EINVAL;
+					goto failure;
 				}
 			}
 
