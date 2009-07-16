@@ -22,9 +22,7 @@
 #include <linux/wait.h>
 #include <linux/clk.h>
 #include <linux/file.h>
-#ifdef CONFIG_ANDROID_PMEM
 #include <linux/android_pmem.h>
-#endif
 #include <linux/major.h>
 
 #include <mach/msm_iomap.h>
@@ -262,10 +260,8 @@ int get_img(struct mdp_img *img, struct fb_info *info,
 	struct file *file;
 	unsigned long vstart;
 
-#ifdef CONFIG_ANDROID_PMEM
 	if (!get_pmem_file(img->memory_id, start, &vstart, len, filep))
 		return 0;
-#endif
 
 	file = fget_light(img->memory_id, &put_needed);
 	if (file == NULL)
@@ -283,12 +279,10 @@ int get_img(struct mdp_img *img, struct fb_info *info,
 
 void put_img(struct file *src_file, struct file *dst_file)
 {
-#ifdef CONFIG_ANDROID_PMEM
 	if (src_file)
 		put_pmem_file(src_file);
 	if (dst_file)
 		put_pmem_file(dst_file);
-#endif
 }
 
 int mdp_blit(struct mdp_device *mdp_dev, struct fb_info *fb,
@@ -320,9 +314,7 @@ int mdp_blit(struct mdp_device *mdp_dev, struct fb_info *fb,
 	if (unlikely(get_img(&req->dst, fb, &dst_start, &dst_len, &dst_file))) {
 		printk(KERN_ERR "mpd_ppp: could not retrieve dst image from "
 				"memory\n");
-#ifdef CONFIG_ANDROID_PMEM
 		put_pmem_file(src_file);
-#endif
 		return -EINVAL;
 	}
 	mutex_lock(&mdp_mutex);
