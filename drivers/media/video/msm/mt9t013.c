@@ -479,8 +479,7 @@ static int32_t mt9t013_write_exp_gain(uint16_t gain, uint32_t line)
 
 	rc = mt9t013_i2c_write_w(mt9t013_client->addr,
 			REG_COARSE_INT_TIME,
-			(uint16_t)((uint32_t) line * 0x00000400 /
-			line_length_ratio));
+			(uint16_t)((uint32_t) line ));
 	if (rc < 0)
 		return rc;
 
