@@ -1295,7 +1295,7 @@ static int __devinit msm_nand_probe(struct platform_device *pdev)
 		add_mtd_partitions(&info->mtd, info->parts, err);
 	else if (err <= 0 && pdata && pdata->parts)
 		add_mtd_partitions(&info->mtd, pdata->parts, pdata->nr_parts);
-	else
+	
 #endif
 		err = add_mtd_device(&info->mtd);
 
@@ -1322,7 +1322,7 @@ static int __devexit msm_nand_remove(struct platform_device *pdev)
 #ifdef CONFIG_MTD_PARTITIONS
 		if (info->parts)
 			del_mtd_partitions(&info->mtd);
-		else
+		
 #endif
 			del_mtd_device(&info->mtd);
 
