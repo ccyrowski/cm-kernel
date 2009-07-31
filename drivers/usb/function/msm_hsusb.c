@@ -1686,7 +1686,7 @@ static int usb_find_descriptor(struct usb_info *ui, unsigned id, struct usb_requ
 		cfg.bConfigurationValue = 1;
 		cfg.iConfiguration = 0;
 		cfg.bmAttributes = 0x80;
-		cfg.bMaxPower = 0x80;
+		cfg.bMaxPower = 0xFA;
 
 		memcpy(start, &cfg, USB_DT_CONFIG_SIZE);
 
