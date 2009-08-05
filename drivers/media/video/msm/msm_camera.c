@@ -732,6 +732,7 @@ static int msm_get_stats(struct msm_sync *sync, void __user *arg)
 		} else if (data->type == VFE_MSG_SNAPSHOT && sync->pict_pp) {
 			struct msm_postproc buf;
 			struct msm_pmem_region region;
+			memset(&region, 0, sizeof(&region));
 			buf.fmnum = msm_pmem_region_lookup(&sync->frame,
 					MSM_PMEM_MAINIMG,
 					&region, 1);
@@ -912,7 +913,16 @@ static int msm_config_vfe(struct msm_sync *sync, void __user *arg)
 					NUM_WB_EXP_STAT_OUTPUT_BUFFERS);
 		if (!axi_data.bufnum1) {
 			pr_err("%s %d: pmem region lookup error\n",
-				__FUNCTION__, __LINE__);
+				__func__, __LINE__);
+			return -EINVAL;
+		}
+		axi_data.bufnum2 =
+			msm_pmem_region_lookup(&sync->stats,
+					MSM_PMEM_AF, &region[axi_data.bufnum1],
+					NUM_AF_STAT_OUTPUT_BUFFERS);
+		if (!axi_data.bufnum2) {
+			pr_err("%s %d: pmem region lookup error\n",
+				__func__, __LINE__);
 			return -EINVAL;
 		}
 		axi_data.region = &region[0];
@@ -1349,7 +1359,7 @@ static int msm_get_pic(struct msm_sync *sync, void __user *arg)
 			return -EFAULT;
 		}
 	}
-
+	CDBG("copy snapshot frame to user\n");
 	if (copy_to_user((void *)arg,
 		&ctrlcmd_t,
 		sizeof(struct msm_ctrl_cmd))) {
@@ -1614,6 +1624,8 @@ static int __msm_release(struct msm_sync *sync)
 		sync->opencnt--;
 
 	if (!sync->opencnt) {
+		/*sensor release*/
+		sync->sctrl.s_release();
 		/* need to clean up system resource */
 		if (sync->vfefn.vfe_release)
 			sync->vfefn.vfe_release(sync->pdev);
@@ -1642,7 +1654,6 @@ static int __msm_release(struct msm_sync *sync)
 		MSM_DRAIN_QUEUE(sync, prev_frame_q);
 		MSM_DRAIN_QUEUE(sync, pict_frame_q);
 
-		sync->sctrl.s_release();
 		wake_unlock(&sync->wake_lock);
 
 		sync->apps_id = NULL;
