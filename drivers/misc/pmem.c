@@ -186,7 +186,7 @@ static int get_id(struct file *file)
 	return MINOR(file->f_dentry->d_inode->i_rdev);
 }
 
-int is_pmem_file(struct file *file)
+static int is_pmem_file(struct file *file)
 {
 	int id;
 
