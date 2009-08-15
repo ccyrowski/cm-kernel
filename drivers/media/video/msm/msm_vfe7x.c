@@ -30,8 +30,7 @@
 static struct msm_adsp_module *qcam_mod;
 static struct msm_adsp_module *vfe_mod;
 static struct msm_vfe_callback *resp;
-static void *extdata;
-static uint32_t extlen;
+static struct vfe_frame_extra *extdata;
 
 struct mutex vfe_lock;
 static void     *vfe_syncdata;
@@ -66,7 +65,7 @@ static void vfe_7x_convert(struct msm_vfe_phy_info *pinfo,
 		((struct vfe_endframe *)data)->redbluedefectpixelcount;
 
 		*ext  = extdata;
-		*elen = extlen;
+		*elen = sizeof(*extdata);
 	}
 		break;
 
@@ -228,7 +227,7 @@ static void vfe_7x_release(struct platform_device *pdev)
 	msm_camio_disable(pdev);
 
 	kfree(extdata);
-	extlen = 0;
+	extdata = 0;
 }
 
 static int vfe_7x_init(struct msm_vfe_callback *presp,
@@ -252,10 +251,8 @@ static int vfe_7x_init(struct msm_vfe_callback *presp,
 
 	msm_camio_camif_pad_reg_reset();
 
-	extlen = sizeof(struct vfe_frame_extra);
-
 	extdata =
-		kmalloc(sizeof(extlen), GFP_ATOMIC);
+		kmalloc(sizeof(struct vfe_frame_extra), GFP_ATOMIC);
 	if (!extdata) {
 		rc = -ENOMEM;
 		goto init_fail;
@@ -280,7 +277,6 @@ get_vfe_fail:
 get_qcam_fail:
 	kfree(extdata);
 init_fail:
-	extlen = 0;
 	return rc;
 }
 
@@ -402,6 +398,16 @@ static int vfe_7x_config(struct msm_vfe_cfg_cmd *cmd, void *data)
 			goto config_failure;
 		}
 
+		if (vfecmd->length != sizeof(typeof(*scfg))) {
+			rc = -EIO;
+			pr_err("msm_camera: %s: cmd %d: user-space data size %d"
+					" != kernel data size %d\n",
+					__func__, cmd->cmd_type,
+					vfecmd->length,
+					sizeof(typeof(*scfg)));
+			goto config_failure;
+		}
+
 		if (copy_from_user(scfg,
 					(void __user *)(vfecmd->value),
 					vfecmd->length)) {
@@ -449,6 +455,15 @@ static int vfe_7x_config(struct msm_vfe_cfg_cmd *cmd, void *data)
 
 		if (!sfcfg) {
 			rc = -ENOMEM;
+			goto config_failure;
+		}
+
+		if (vfecmd->length > sizeof(typeof(*sfcfg))) {
+			pr_err("msm_camera: %s: cmd %d: user-space data %d exceeds kernel buffer %d\n",
+				__func__, cmd->cmd_type,
+				vfecmd->length,
+				sizeof(typeof(*sfcfg)));
+			rc = -EIO;
 			goto config_failure;
 		}
 
@@ -549,7 +564,7 @@ static int vfe_7x_config(struct msm_vfe_cfg_cmd *cmd, void *data)
 
 	case CMD_GENERAL:
 	case CMD_STATS_DISABLE: {
-		if (vfecmd->length > 256) {
+		if (vfecmd->length > sizeof(buf)) {
 			cmd_data_alloc =
 			cmd_data = kmalloc(vfecmd->length, GFP_ATOMIC);
 			if (!cmd_data) {
