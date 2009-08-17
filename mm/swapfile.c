@@ -471,6 +471,37 @@ out:
 	return NULL;
 }
 
+/*
+ * Sets callback for event when swap_map[offset] == 0
+ * i.e. page at this swap offset is no longer used.
+ */
+void set_swap_free_notify(struct block_device *bdev,
+          swap_free_notify_fn *notify_fn)
+{
+  unsigned int i;
+  struct swap_info_struct *sis;
+
+  spin_lock(&swap_lock);
+  for (i = 0; i <= nr_swapfiles; i++) {
+      sis = &swap_info[i];
+      if (!(sis->flags & SWP_USED))
+          continue;
+      if (sis->bdev == bdev)
+          break;
+  }
+
+  /* swap device not found */
+  if (i > nr_swapfiles)
+      return;
+
+  BUG_ON(!sis || sis->swap_free_notify_fn);
+  sis->swap_free_notify_fn = notify_fn;
+  spin_unlock(&swap_lock);
+
+  return;
+}
+EXPORT_SYMBOL_GPL(set_swap_free_notify);
+
 static int swap_entry_free(struct swap_info_struct *p, swp_entry_t ent)
 {
 	unsigned long offset = swp_offset(ent);
@@ -489,6 +520,9 @@ static int swap_entry_free(struct swap_info_struct *p, swp_entry_t ent)
 			nr_swap_pages++;
 			p->inuse_pages--;
 			mem_cgroup_uncharge_swap(ent);
+            if (p->swap_free_notify_fn)
+                p->swap_free_notify_fn(p->bdev, offset);
+
 		}
 	}
 	return count;
