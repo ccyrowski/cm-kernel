@@ -8,6 +8,7 @@
 #include <linux/memcontrol.h>
 #include <linux/sched.h>
 #include <linux/node.h>
+#include <linux/blkdev.h>
 
 #include <asm/atomic.h>
 #include <asm/page.h>
@@ -19,6 +20,8 @@ struct bio;
 #define SWAP_FLAG_PREFER	0x8000	/* set if swap priority specified */
 #define SWAP_FLAG_PRIO_MASK	0x7fff
 #define SWAP_FLAG_PRIO_SHIFT	0
+
+typedef void (swap_free_notify_fn) (struct block_device *, unsigned long);
 
 static inline int current_is_kswapd(void)
 {
@@ -154,6 +157,7 @@ struct swap_info_struct {
 	unsigned int max;
 	unsigned int inuse_pages;
 	unsigned int old_block_size;
+	swap_free_notify_fn *swap_free_notify_fn;
 };
 
 struct swap_list_t {
@@ -311,6 +315,7 @@ extern sector_t swapdev_block(int, pgoff_t);
 extern struct swap_info_struct *get_swap_info_struct(unsigned);
 extern int reuse_swap_page(struct page *);
 extern int try_to_free_swap(struct page *);
+extern void set_swap_free_notify(struct block_device *, swap_free_notify_fn *);
 struct backing_dev_info;
 
 /* linux/mm/thrash.c */
