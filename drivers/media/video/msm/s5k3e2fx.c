@@ -1298,7 +1298,7 @@ static int s5k3e2fx_probe_init_done(const struct msm_camera_sensor_info *data)
 	gpio_direction_output(data->sensor_reset, 0);
 20090703 Steven_Yeh For disable HW standby. End
 */
-	gpio_free(data->sensor_reset);
+	/*gpio_free(data->sensor_reset);*/
 	return 0;
 }
 
@@ -1307,11 +1307,16 @@ static int s5k3e2fx_probe_init_sensor(const struct msm_camera_sensor_info *data)
 	int32_t  rc;
 	uint16_t chipid = 0;
 
+	pr_info("s5k3e2fx: gpio_request:%d\n",data->sensor_reset);
 	rc = gpio_request(data->sensor_reset, "s5k3e2fx");
 	if (!rc)
 		gpio_direction_output(data->sensor_reset, 1);
-	else
-		goto init_probe_done;
+	else{
+		pr_info("s5k3e2fx: request GPIO(sensor_reset) :%d faile\n",data->sensor_reset);
+		goto init_probe_fail;
+	}
+	pr_info("s5k3e2fx: gpio_free:%d line:%d\n",data->sensor_reset,__LINE__);
+	gpio_free(data->sensor_reset);
 
 	mdelay(20);
 
@@ -1331,11 +1336,11 @@ static int s5k3e2fx_probe_init_sensor(const struct msm_camera_sensor_info *data)
 		goto init_probe_fail;
 	}
 
-CDBG("%s %s:%d\n", __FILE__, __func__, __LINE__);
+	CDBG("%s %s:%d\n", __FILE__, __func__, __LINE__);
 	goto init_probe_done;
 
 init_probe_fail:
-	s5k3e2fx_probe_init_done(data);
+	pr_info("s5k3e2fx: prob init sensor faile\n");
 init_probe_done:
 	return rc;
 }
@@ -1844,7 +1849,7 @@ static int s5k3e2fx_sensor_release(void)
 	s5k3e2fx_suspend_sensor();
 	mdelay(10);
 /*<----------------------------*/
-	gpio_free(s5k3e2fx_ctrl->sensordata->sensor_reset);
+	/*gpio_free(s5k3e2fx_ctrl->sensordata->sensor_reset);*/
 
 	kfree(s5k3e2fx_ctrl);
 	s5k3e2fx_ctrl = NULL;
@@ -2380,15 +2385,152 @@ static int s5k3e2fx_sensor_probe(const struct msm_camera_sensor_info *info,
 	s->s_init = s5k3e2fx_sensor_open_init;
 	s->s_release = s5k3e2fx_sensor_release;
 	s->s_config  = s5k3e2fx_sensor_config;
-	s5k3e2fx_probe_init_done(info);
 
-pr_info("%s:%d\n",  __func__, __LINE__);
+	pr_info("%s:%d\n",  __func__, __LINE__);
 	return rc;
 
 probe_fail:
 	CDBG("SENSOR PROBE FAILS!\n");
 	return rc;
 }
+
+static int s5k3e2fx_suspend(struct platform_device *pdev, pm_message_t state)
+{
+	int rc;
+	struct msm_camera_sensor_info *sinfo = pdev->dev.platform_data;
+	pr_info("s5k3e2fx: camera suspend\n");
+	rc = gpio_request(sinfo->sensor_reset, "s5k3e2fx");
+	if (!rc)
+		gpio_direction_output(sinfo->sensor_reset, 0);
+	else{
+		pr_info("s5k3e2fx: request GPIO(sensor_reset) :%d faile\n",sinfo->sensor_reset);
+		goto suspend_fail;
+	}
+	pr_info("s5k3e2fx: gpio_free:%d line:%d\n",sinfo->sensor_reset,__LINE__);
+	gpio_free(sinfo->sensor_reset);
+
+suspend_fail:
+	return rc;
+}
+static void s5k3e2fx_sensor_resume_setting(void){
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,
+		S5K3E2FX_REG_SOFTWARE_RESET,
+		S5K3E2FX_SOFTWARE_RESET);
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x0100, 0x00);
+	/*--------------PLL setting for 80Mhz*/
+	/* PLL setting */
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x0305, 0x06);
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x0306, 0x00);
+	/*88 54.4Mhz */
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x0307, 0x83);
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x0301, 0x08);
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x0303, 0x01);
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x0309, 0x08);
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x030b, 0x01);
+	/*--------------output size*/
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x034c, 0x05);
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x034d, 0x10);
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x034e, 0x03);
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x034f, 0xcc);
+	/*--------------frame format (min blanking)*/
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x0340, 0x03);
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x0341, 0xe2);
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x0342, 0x0a);
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x0343, 0xac);
+	/*--------------Binning */
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x0381, 0x01);
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x0383, 0x01);
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x0385, 0x01);
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x0387, 0x03);
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x3014, 0x06);
+	/*--------------MSR setting*/
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x30c4, 0x01);
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x3000, 0x03);
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x3001, 0x94);
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x3002, 0x02);
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x3003, 0x95);
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x3004, 0x0f);
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x3005, 0x05);
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x3006, 0x3c);
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x3007, 0x8c);
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x3008, 0x93);
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x3009, 0x05);
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x300a, 0x3a);
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x300c, 0x02);
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x300d, 0x3e);
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x300f, 0x0e);
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x3010, 0x46);
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x3011, 0x64);
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x3012, 0x1e);
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x301d, 0x3f);
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x3024, 0x04);
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x3028, 0x40);
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x3070, 0xdf);
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x301b, 0x73);
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x307e, 0x02);
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x30bd, 0x06);
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x30c2, 0x0b);
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x30ac, 0x81);
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x3151, 0xe6);
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x3029, 0x02);
+	/*--------------EVT4 setting*/
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x30bf, 0x00);
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x3022, 0x87);
+	/*tune ADC to got batter yield rate in EDS*/
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x3019, 0x60);
+	/*AF driving strength*/
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x3146, 0x3c);
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x3152, 0x08);
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x315a, 0xaa);
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x3159, 0x0a);
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x0205, 0x80);
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x0202, 0x03);
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x0200, 0x02);
+}
+static int s5k3e2fx_resume(struct platform_device *pdev)
+{
+	int rc = 0;
+	struct msm_camera_sensor_info *sinfo = pdev->dev.platform_data;
+	printk("s5k3e2fx_resume\n");
+	/*init msm,clk ,GPIO,enable*/
+	msm_camio_probe_on(pdev);
+	msm_camio_clk_enable(CAMIO_MDC_CLK);
+
+	pr_info("msm_camio_probe_on\n");
+	/*read sensor ID and pull down reset*/
+	msm_camio_clk_rate_set(S5K3E2FX_DEF_MCLK);
+	pr_info("msm_camio_clk_rate_set\n");
+	mdelay(20);
+	s5k3e2fx_probe_init_sensor(sinfo);
+	pr_info("s5k3e2fx_probe_init_sensor\n");
+	/*init sensor,streaming on, SW init streaming off*/
+	s5k3e2fx_sensor_resume_setting();
+	/*lens sharding*/
+	s5k3e2fx_probe_init_lens_correction(sinfo);
+	/*stream on*/
+	s5k3e2fx_i2c_write_b(
+		s5k3e2fx_client->addr,
+		S5K3E2FX_REG_MODE_SELECT,
+		S5K3E2FX_MODE_SELECT_STREAM);
+	/*software standby*/
+	mdelay(25);
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x3130, 0x00);
+	mdelay(1);
+	/*stream off*/
+	s5k3e2fx_i2c_write_b(
+		s5k3e2fx_client->addr,
+		S5K3E2FX_REG_MODE_SELECT,
+		S5K3E2FX_MODE_SELECT_SW_STANDBY);
+	mdelay(1);
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,0x3150, 0x51);
+	mdelay(240);
+	/*set RST to low*/
+	msm_camio_probe_off(pdev);
+	msm_camio_clk_disable(CAMIO_MDC_CLK);
+	pr_info("s5k3e2fx:resume done\n");
+	return rc;
+}
+
 
 static int __s5k3e2fx_probe(struct platform_device *pdev)
 {
@@ -2401,6 +2543,8 @@ static struct platform_driver msm_camera_driver = {
 		.name = "msm_camera_s5k3e2fx",
 		.owner = THIS_MODULE,
 	},
+	.suspend = s5k3e2fx_suspend,
+	.resume = s5k3e2fx_resume,
 };
 
 static int __init s5k3e2fx_init(void)
