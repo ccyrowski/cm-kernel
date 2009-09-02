@@ -232,6 +232,17 @@ void msm_camio_vfe_blk_reset(void)
 	val &= ~0x1;
 	writel(val, appbase + 0x00000210);
 	mdelay(10);
+
+	/* do axi reset */
+	val = readl(appbase + 0x00000208);
+	val |= 0x1;
+	writel(val, appbase + 0x00000208);
+	mdelay(10);
+
+	val = readl(appbase + 0x00000208);
+	val &= ~0x1;
+	writel(val, appbase + 0x00000208);
+	mdelay(10);
 }
 
 void msm_camio_camif_pad_reg_reset_2(void)
