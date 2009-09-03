@@ -396,7 +396,7 @@ static int vfe_7x_config(struct msm_vfe_cfg_cmd *cmd, void *data)
 	}
 
 	switch (cmd->cmd_type) {
-	case CMD_STATS_ENABLE:
+	case CMD_STATS_AEC_AWB_ENABLE:
 	case CMD_STATS_AXI_CFG: {
 		axid = data;
 		if (!axid) {

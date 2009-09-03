@@ -607,6 +607,14 @@ static int vfe_config(struct msm_vfe_cfg_cmd *cmd, void *data)
 	}
 		break;
 
+	case CMD_STATS_AF_BUF_RELEASE: {
+		struct vfe_cmd_stats_af_ack ack;
+		if (!data)
+			return -EFAULT;
+		ack.nextAFOutputBufferAddr = *(uint32_t *)data;
+		vfe_stats_af_ack(&ack);
+	}
+		break;
 	case CMD_AXI_CFG_OUT1: {
 		struct axidata *axid;
 

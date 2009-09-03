@@ -118,6 +118,7 @@ struct msm_sync {
 	void *cropinfo;
 	int  croplen;
 	unsigned pict_pp;
+	uint8_t pp_sync_flag;
 
 	const char *apps_id;
 
