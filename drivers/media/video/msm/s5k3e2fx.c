@@ -2398,6 +2398,10 @@ static int s5k3e2fx_suspend(struct platform_device *pdev, pm_message_t state)
 {
 	int rc;
 	struct msm_camera_sensor_info *sinfo = pdev->dev.platform_data;
+
+	if (!sinfo->need_suspend)
+		return 0;
+
 	pr_info("s5k3e2fx: camera suspend\n");
 	rc = gpio_request(sinfo->sensor_reset, "s5k3e2fx");
 	if (!rc)
@@ -2491,6 +2495,10 @@ static int s5k3e2fx_resume(struct platform_device *pdev)
 {
 	int rc = 0;
 	struct msm_camera_sensor_info *sinfo = pdev->dev.platform_data;
+
+	if (!sinfo->need_suspend)
+		return 0;
+
 	printk("s5k3e2fx_resume\n");
 	/*init msm,clk ,GPIO,enable*/
 	msm_camio_probe_on(pdev);
