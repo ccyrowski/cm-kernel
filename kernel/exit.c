@@ -128,7 +128,7 @@ static void __exit_signal(struct task_struct *tsk)
 		sig->inblock += task_io_get_inblock(tsk);
 		sig->oublock += task_io_get_oublock(tsk);
 		task_io_accounting_add(&sig->ioac, &tsk->ioac);
-		sig->sum_sched_runtime += tsk->se.sum_exec_runtime;
+		sig->sum_sched_runtime += tsk->sched_time;
 		sig = NULL; /* Marker for below. */
 	}
 
@@ -150,10 +150,10 @@ static void __exit_signal(struct task_struct *tsk)
 		flush_sigqueue(&sig->shared_pending);
 		taskstats_tgid_free(sig);
 		/*
-		 * Make sure ->signal can't go away under rq->lock,
+		 * Make sure ->signal can't go away under grq.lock,
 		 * see account_group_exec_runtime().
 		 */
-		task_rq_unlock_wait(tsk);
+		grq_unlock_wait();
 		__cleanup_signal(sig);
 	}
 }
