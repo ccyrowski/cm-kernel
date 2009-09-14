@@ -25,6 +25,7 @@
 #include <linux/platform_device.h>
 #include "msm_vfe8x_proc.h"
 #include <media/msm_camera.h>
+#include <mach/board.h>
 
 struct msm_vfe8x_ctrl {
 	/* bit 1:0 ENC_IRQ_MASK = 0x11:
@@ -122,41 +123,6 @@ static void vfe_prog_hw(uint8_t *hwreg,
 	/* spin_unlock_irqrestore(&ctrl->io_lock, flags); */
 }
 
-static void vfe_read_reg_values(uint8_t *hwreg,
-	uint32_t *dest, uint32_t count)
-{
-	/* unsigned long flags; */
-	uint32_t *temp;
-	uint32_t i;
-
-	/* @todo This is causing issues, need further investigate */
-	/* spin_lock_irqsave(&ctrl->io_lock, flags); */
-
-	temp = (uint32_t *)(hwreg);
-	for (i = 0; i < count; i++)
-		*dest++ = *temp++;
-
-	/* spin_unlock_irqrestore(&ctrl->io_lock, flags); */
-}
-
-static struct vfe_irqenable vfe_read_irq_mask(void)
-{
-	/* unsigned long flags; */
-	uint32_t *temp;
-	struct vfe_irqenable rc;
-
-	memset(&rc, 0, sizeof(rc));
-
-	/* @todo This is causing issues, need further investigate */
-	/* spin_lock_irqsave(&ctrl->io_lock, flags); */
-	temp = (uint32_t *)(ctrl->vfebase + VFE_IRQ_MASK);
-
-	rc = *((struct vfe_irqenable *)temp);
-	/* spin_unlock_irqrestore(&ctrl->io_lock, flags); */
-
-	return rc;
-}
-
 static void
 vfe_set_bus_pipo_addr(struct vfe_output_path_combo *vpath,
 	struct vfe_output_path_combo *epath)
@@ -189,6 +155,7 @@ static void vfe_axi_output(struct vfe_cmd_axi_output_config *in,
 	uint16_t temp;
 	uint32_t burstLength;
 
+	memset(&cmd, 0, sizeof(cmd));
 	/* force it to burst length 4, hardware does not support it. */
 	burstLength = 1;
 
@@ -285,6 +252,7 @@ static void vfe_reg_bus_cfg(struct vfe_bus_cfg_data *in)
 {
 	struct vfe_axi_bus_cfg cmd;
 
+	memset(&cmd, 0, sizeof(cmd));
 	cmd.stripeRdPathEn      = in->stripeRdPathEn;
 	cmd.encYWrPathEn        = in->encYWrPathEn;
 	cmd.encCbcrWrPathEn     = in->encCbcrWrPathEn;
@@ -494,16 +462,6 @@ static void vfe_pm_stop(void)
 	writel(VFE_PERFORMANCE_MONITOR_STOP, ctrl->vfebase + VFE_BUS_PM_CMD);
 }
 
-static void vfe_program_bus_rd_irq_en(uint32_t value)
-{
-	writel(value, ctrl->vfebase + VFE_BUS_PINGPONG_IRQ_EN);
-}
-
-static void vfe_camif_go(void)
-{
-	writel(CAMIF_COMMAND_START, ctrl->vfebase + CAMIF_COMMAND);
-}
-
 static void vfe_camif_stop_immediately(void)
 {
 	writel(CAMIF_COMMAND_STOP_IMMEDIATELY, ctrl->vfebase + CAMIF_COMMAND);
@@ -513,11 +471,6 @@ static void vfe_camif_stop_immediately(void)
 static void vfe_program_reg_update_cmd(uint32_t value)
 {
 	writel(value, ctrl->vfebase + VFE_REG_UPDATE_CMD);
-}
-
-static void vfe_program_bus_cmd(uint32_t value)
-{
-	writel(value, ctrl->vfebase + VFE_BUS_CMD);
 }
 
 static void vfe_program_global_reset_cmd(uint32_t value)
@@ -540,19 +493,9 @@ static inline void vfe_program_irq_mask(uint32_t value)
 	writel(value, ctrl->vfebase + VFE_IRQ_MASK);
 }
 
-static void vfe_program_chroma_upsample_cfg(uint32_t value)
-{
-	writel(value, ctrl->vfebase + VFE_CHROMA_UPSAMPLE_CFG);
-}
-
 static uint32_t vfe_read_axi_status(void)
 {
 	return readl(ctrl->vfebase + VFE_AXI_STATUS);
-}
-
-static uint32_t vfe_read_pm_status_in_raw_capture(void)
-{
-	return readl(ctrl->vfebase + VFE_BUS_ENC_CBCR_WR_PM_STATS_1);
 }
 
 static void
@@ -568,11 +511,6 @@ vfe_set_stats_pingpong_address(struct vfe_stats_control *afControl,
 		(ctrl->vfebase + VFE_BUS_STATS_AWB_WR_PING_ADDR);
 	awbControl->hwRegPongAddress = (uint8_t *)
 		(ctrl->vfebase + VFE_BUS_STATS_AWB_WR_PONG_ADDR);
-}
-
-static uint32_t vfe_read_camif_status(void)
-{
-	return readl(ctrl->vfebase + CAMIF_STATUS);
 }
 
 static void vfe_program_lut_bank_sel(struct vfe_gamma_lut_sel *in)
@@ -1108,46 +1046,6 @@ static void vfe_process_stats_awb_irq(void)
 		ctrl->awbStatsControl.droppedStatsFrameCount++;
 }
 
-static void vfe_process_sync_timer_irq(
-	struct vfe_interrupt_status *irqstatus)
-{
-	if (irqstatus->syncTimer0Irq)
-		vfe_send_msg_no_payload(VFE_MSG_ID_SYNC_TIMER0_DONE);
-
-	if (irqstatus->syncTimer1Irq)
-		vfe_send_msg_no_payload(VFE_MSG_ID_SYNC_TIMER1_DONE);
-
-	if (irqstatus->syncTimer2Irq)
-		vfe_send_msg_no_payload(VFE_MSG_ID_SYNC_TIMER2_DONE);
-}
-
-static void vfe_process_async_timer_irq(
-	struct vfe_interrupt_status *irqstatus)
-{
-
-	if (irqstatus->asyncTimer0Irq)
-		vfe_send_msg_no_payload(VFE_MSG_ID_ASYNC_TIMER0_DONE);
-
-	if (irqstatus->asyncTimer1Irq)
-		vfe_send_msg_no_payload(VFE_MSG_ID_ASYNC_TIMER1_DONE);
-
-	if (irqstatus->asyncTimer2Irq)
-		vfe_send_msg_no_payload(VFE_MSG_ID_ASYNC_TIMER2_DONE);
-
-	if (irqstatus->asyncTimer3Irq)
-		vfe_send_msg_no_payload(VFE_MSG_ID_ASYNC_TIMER3_DONE);
-}
-
-static void vfe_send_violation_msg(void)
-{
-	vfe_send_msg_no_payload(VFE_MSG_ID_VIOLATION);
-}
-
-static void vfe_send_async_timer_msg(void)
-{
-	vfe_send_msg_no_payload(VFE_MSG_ID_ASYNC_TIMER0_DONE);
-}
-
 static void vfe_write_gamma_table(uint8_t channel,
 	boolean bank, int16_t *pTable)
 {
@@ -1288,7 +1186,9 @@ vfe_parse_interrupt_status(uint32_t irqStatusIn)
 		ret.camifErrorIrq    ||
 		ret.camifOverflowIrq ||
 		ret.afOverflowIrq    ||
-		ret.awbPingpongIrq   ||
+		ret.awbOverflowIrq   ||
+              ret.awbPingpongIrq   ||
+              ret.afPingpongIrq    ||
 		ret.busOverflowIrq   ||
 		ret.axiErrorIrq      ||
 		ret.violationIrq;
@@ -1693,10 +1593,6 @@ static void vfe_process_frame_done_irq_no_frag(
 	struct vfe_output_path_combo *in)
 {
 	uint32_t addressToRender[2];
-	static uint32_t fcnt;
-
-	if (fcnt++ < 3)
-		return;
 
 	if (!in->ackPending) {
 		vfe_process_frame_done_irq_no_frag_io(in,
@@ -1937,6 +1833,11 @@ int vfe_cmd_init(struct msm_vfe_callback *presp,
 {
 	struct resource	*vfemem, *vfeirq, *vfeio;
 	int rc;
+	struct msm_camera_sensor_info *s_info;
+	s_info = pdev->dev.platform_data;
+
+	pdev->resource = s_info->resource;
+	pdev->num_resources = s_info->num_resources;
 
 	vfemem = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (!vfemem) {
@@ -2866,8 +2767,8 @@ void vfe_asf_update(struct vfe_cmd_asf_update *in)
 
 	cmd.smoothEnable     = in->smoothFilterEnabled;
 	cmd.sharpMode        = in->sharpMode;
-	cmd.smoothCoeff1     = in->smoothCoefCenter;
-	cmd.smoothCoeff0     = in->smoothCoefSurr;
+	cmd.smoothCoeff0     = in->smoothCoefCenter;
+	cmd.smoothCoeff1     = in->smoothCoefSurr;
 	cmd.cropEnable       = in->cropEnable;
 	cmd.sharpThresholdE1 = in->sharpThreshE1;
 	cmd.sharpDegreeK1    = in->sharpK1;
@@ -3415,19 +3316,6 @@ void vfe_axi_input_config(struct vfe_cmd_axi_input_config *in)
 
 	writel(busPingpongRdIrqEnable,
 		ctrl->vfebase + VFE_BUS_PINGPONG_IRQ_EN);
-}
-
-void vfe_stats_config(struct vfe_cmd_stats_setting *in)
-{
-	ctrl->afStatsControl.addressBuffer[0] = in->afBuffer[0];
-	ctrl->afStatsControl.addressBuffer[1] = in->afBuffer[1];
-	ctrl->afStatsControl.nextFrameAddrBuf = in->afBuffer[2];
-
-	ctrl->awbStatsControl.addressBuffer[0] = in->awbBuffer[0];
-	ctrl->awbStatsControl.addressBuffer[1] = in->awbBuffer[1];
-	ctrl->awbStatsControl.nextFrameAddrBuf = in->awbBuffer[2];
-
-	vfe_stats_setting(in);
 }
 
 void vfe_axi_output_config(
