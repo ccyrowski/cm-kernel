@@ -57,6 +57,7 @@ struct msm_camera_sensor_info {
 	int mclk;
 	int num_flash_levels;
 	int (*camera_flash)(int level);
+	int need_suspend;
 	struct msm_camera_device_platform_data *pdata;
 };
 
