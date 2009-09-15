@@ -51,16 +51,14 @@ struct msm_camera_legacy_device_platform_data {
 };
 #endif
 
-#define MSM_CAMERA_FLASH_NONE 0
-#define MSM_CAMERA_FLASH_LED  1
-
 struct msm_camera_sensor_info {
 	const char *sensor_name;
 	int sensor_reset;
 	int sensor_pwd;
 	int vcm_pwd;
 	int mclk;
-	int flash_type;
+	int num_flash_levels;
+	int (*camera_flash)(int level);
 	struct msm_camera_device_platform_data *pdata;
 };
 

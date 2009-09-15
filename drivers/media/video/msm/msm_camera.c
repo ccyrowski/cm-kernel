@@ -1170,7 +1170,7 @@ static int msm_get_sensor_info(struct msm_sync *sync, void __user *arg)
 	memcpy(&info.name[0],
 		sdata->sensor_name,
 		MAX_SENSOR_NAME);
-	info.flash_enabled = sdata->flash_type != MSM_CAMERA_FLASH_NONE;
+	info.flash_enabled = !!sdata->camera_flash;
 
 	/* copy back to user space */
 	if (copy_to_user((void *)arg,
