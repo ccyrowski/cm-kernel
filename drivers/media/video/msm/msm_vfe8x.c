@@ -177,8 +177,13 @@ static int vfe_proc_general(struct msm_vfe_command_8k *cmd)
 			rc = -ENOMEM;
 			break;
 		}
-		CHECKED_COPY_FROM_USER(rolloff);
-		vfe_roll_off_config(rolloff);
+		/* Wrap CHECKED_COPY_FROM_USER() in a do-while(0) loop to make
+		 * sure we free rolloff when copy_from_user() fails.
+		 */
+		do {
+			CHECKED_COPY_FROM_USER(rolloff);
+			vfe_roll_off_config(rolloff);
+		} while(0);
 		kfree(rolloff);
 	}
 		break;
