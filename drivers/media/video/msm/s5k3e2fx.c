@@ -8,13 +8,19 @@
 #include <linux/uaccess.h>
 #include <linux/miscdevice.h>
 #include <media/msm_camera.h>
+#include <mach/board.h>
 #include <mach/gpio.h>
 #include <mach/camera.h>
-#include "s5k3e2fx.h"
 #include <linux/wakelock.h>
+
+static bool g_usPowerDownFlag = false;
+static bool g_usLCSettingFlag = false;
+static uint16_t g_usModuleVersion = 0; /*0: rev.4, 1: rev.5*/
 
 #define S5K3E2FX_REG_MODEL_ID   0x0000
 #define S5K3E2FX_MODEL_ID       0x3E2F
+
+#define S5K3E2FX_REG_MODULE_VER	0x0002
 
 #define S5K3E2FX_DEF_MCLK		24000000
 
@@ -38,6 +44,10 @@
 20090703 Steven_Yeh Mask non-necessary setting. End */
 
 /* PLL Registers */
+/* AEC_FLASHING */
+#define REG_GROUPED_PARAMETER_HOLD              0x0104
+#define GROUPED_PARAMETER_HOLD                  0x01
+#define GROUPED_PARAMETER_UPDATE                0x00
 #define REG_PRE_PLL_CLK_DIV           0x0305
 #define REG_PLL_MULTIPLIER_MSB        0x0306
 #define REG_PLL_MULTIPLIER_LSB        0x0307
@@ -160,554 +170,1118 @@
 #define REG_Y_ADDR_END_MSB            0x034A
 #define REG_Y_ADDR_END_LSB            0x034B
 
-unsigned char g_usPowerDownFlag = false;
-unsigned char g_usLCSettingFlag = false;
+#define NUM_INIT_REG	94
+#define NUM_LC_REG	434
 
 struct s5k3e2fx_i2c_reg_conf {
 	unsigned short waddr;
 	unsigned char  bdata;
 };
-
-struct s5k3e2fx_i2c_reg_conf lc_setting[] = {
-	/* PLL setting */
-	REG_PRE_PLL_CLK_DIV,	0x06,
-	REG_PLL_MULTIPLIER_MSB,	0x00,
-	REG_PLL_MULTIPLIER_LSB,	0xA0, /* 090723 Steven_Yeh changes from 0x88 to 0xA0 for PCLK=80MHz */
-	REG_VT_PIX_CLK_DIV,	0x08, /* 090723 Steven_Yeh changes from 0x0A to 0x08 for PCLK=80MHz */
-	REG_VT_SYS_CLK_DIV,	0x01,
-	REG_OP_PIX_CLK_DIV,	0x08, /* 090723 Steven_Yeh changes from 0x0A to 0x08 for PCLK=80MHz */
-	REG_OP_SYS_CLK_DIV,	0x01,
+/*20090811 Separate the EVT4/EVT5 sensor init and LC setting start*/
+struct s5k3e2fx_i2c_reg_conf Init_setting[2][NUM_INIT_REG] = {
+	/*EVT4*/
+	{
+	{REG_PRE_PLL_CLK_DIV,	0x06}, /* PLL setting */
+	{REG_PLL_MULTIPLIER_MSB,	0x00},
+	{REG_PLL_MULTIPLIER_LSB,	0xA0}, /* 090723  changes from 0x88 to 0xA0 for PCLK=80MHz */
+	{REG_VT_PIX_CLK_DIV,	0x08}, /* 090723  changes from 0x0A to 0x08 for PCLK=80MHz */
+	{REG_VT_SYS_CLK_DIV,	0x01},
+	{REG_OP_PIX_CLK_DIV,	0x08}, /* 090723  changes from 0x0A to 0x08 for PCLK=80MHz */
+	{REG_OP_SYS_CLK_DIV,	0x01},
 	/* Data Format */
-	REG_CCP_DATA_FORMAT_MSB,	0x0a,
-	REG_CCP_DATA_FORMAT_LSB,	0x0a,
+	{REG_CCP_DATA_FORMAT_MSB,	0x0a},
+	{REG_CCP_DATA_FORMAT_LSB,	0x0a},
 	/* Preview Output Size */
-	REG_X_OUTPUT_SIZE_MSB,	0x05,
-	REG_X_OUTPUT_SIZE_LSB,	0x10,
-	REG_Y_OUTPUT_SIZE_MSB,	0x03,
-	REG_Y_OUTPUT_SIZE_LSB,	0xcc,
-	REG_X_ADDR_START_MSB,	0x00,
-	REG_X_ADDR_START_LSB,	0x08,
-	REG_Y_ADDR_START_MSB,	0x00,
-	REG_Y_ADDR_START_LSB,	0x08,
-	REG_X_ADDR_END_MSB,	0x0a,
-	REG_X_ADDR_END_LSB,	0x27,
-	REG_Y_ADDR_END_MSB,	0x07,
-	REG_Y_ADDR_END_LSB,	0x9f,
+	{REG_X_OUTPUT_SIZE_MSB,	0x05},
+	{REG_X_OUTPUT_SIZE_LSB,	0x10},
+	{REG_Y_OUTPUT_SIZE_MSB,	0x03},
+	{REG_Y_OUTPUT_SIZE_LSB,	0xcc},
+	{REG_X_ADDR_START_MSB,	0x00},
+	{REG_X_ADDR_START_LSB,	0x08},
+	{REG_Y_ADDR_START_MSB,	0x00},
+	{REG_Y_ADDR_START_LSB,	0x08},
+	{REG_X_ADDR_END_MSB,	0x0a},
+	{REG_X_ADDR_END_LSB,	0x27},
+	{REG_Y_ADDR_END_MSB,	0x07},
+	{REG_Y_ADDR_END_LSB,	0x9f},
 	/* Frame format */
-	REG_FRAME_LENGTH_LINES_MSB,	0x03,
-	REG_FRAME_LENGTH_LINES_LSB,	0xe2,
-	REG_LINE_LENGTH_PCK_MSB,	0x0a,
-	REG_LINE_LENGTH_PCK_LSB,	0xac,
+	{REG_FRAME_LENGTH_LINES_MSB,	0x03},
+	{REG_FRAME_LENGTH_LINES_LSB,	0xe2},
+	{REG_LINE_LENGTH_PCK_MSB,	0x0a},
+	{REG_LINE_LENGTH_PCK_LSB,	0xac},
 	/* Preview Binning */
-	REG_X_EVEN_INC,		0x01,
-	REG_X_ODD_INC,		0x01,
-	REG_Y_EVEN_INC,		0x01,
-	REG_Y_ODD_INC,		0x03,
-	REG_BINNING_ENABLE,	0x06,
+	{REG_X_EVEN_INC,		0x01},
+	{REG_X_ODD_INC,		0x01},
+	{REG_Y_EVEN_INC,		0x01},
+	{REG_Y_ODD_INC,		0x03},
+	{REG_BINNING_ENABLE,	0x06},
 	/* Samsung MSR Setting */
-	REG_SEL_CCP,		0x01,
-	REG_LD_START,		0x03,
-	REG_LD_END,		0x94,
-	REG_SL_START,		0x02,
-	REG_SL_END,		0x95,
-	REG_RX_START,		0x0f,
-	REG_S1_START,		0x05,
-	REG_S1_END,		0x3c,
-	REG_S1S_START,		0x8c,
-	REG_S1S_END,		0x93,
-	REG_S3_START,		0x05,
-	REG_S3_END,		0x3a,
-	REG_CMP_EN_START,	0x10,
-	REG_CLP_SL_START,	0x02,
-	REG_CLP_SL_END,		0x3e,
-	REG_OFF_START,		0x02,
-	REG_RMP_EN_START,	0x0e,
-	REG_TX_START,		0x46,
-	REG_TX_END,		0x64,
-	REG_STX_WIDTH,		0x1e,
-	REG_CLAMP_ON,		0x00,
-	REG_301D_RESERVED,	0x3f,
-	REG_VPIX,		0x04,
-	REG_3028_RESERVED,	0x40,
-	REG_3070_RESERVED,	0xdf,
-	REG_3072_RESERVED,	0x20,
-	REG_301B_RESERVED,	0x73,
-	REG_OFFSET,		0x02,
-	REG_30BD_RESERVED,	0x06,
-	REG_30C2_RESERVED,	0x0b,
-	REG_SHADE_CLK_ENABLE,	0x81,
-	REG_3051_RESERVED,	0xe6,
-	REG_3029_RESERVED,	0x02,
-	REG_30BF_RESERVED,	0x00,
-	REG_3022_RESERVED,	0x87,
-	REG_3019_RESERVED,	0x60,
-	REG_3152_RESERVED,	0x08,
-	REG_3150_RESERVED,	0x50, /* 090723 Steven_Yeh changes from 0x40 to 0x50 for PCLK=80MHz *//* Inverse PCLK = 0x50 */
-	REG_3157_RESERVED,	0x04, /* 090723 Steven_Yeh changes from 0x00 to 0x04 for PCLK=80MHz */
+	{REG_SEL_CCP,		0x01},
+	{REG_LD_START,		0x03},
+	/* 090811 Add EVT5 sensor Samsung MSR setting, Start */
+	{REG_LD_END,		0x94},
+	{REG_SL_START,		0x02},
+	{REG_SL_END,		0x95},
+	{REG_RX_START,		0x0f},
+	{REG_S1_START,		0x05},
+	{REG_S1_END,		0x3c},
+	{REG_S1S_START,		0x8c},
+	{REG_S1S_END,		0x93},
+	{REG_S3_START,		0x05},
+	{REG_S3_END,		0x3a},
+	{REG_CMP_EN_START,	0x10},
+	{REG_CLP_SL_START,	0x02},
+	{REG_CLP_SL_END,	0x3e},
+	{REG_OFF_START,		0x02},
+	{REG_RMP_EN_START,	0x0e},
+	{REG_TX_START,		0x46},
+	{REG_TX_END,		0x64},
+	{REG_STX_WIDTH,		0x1e},
+	{REG_CLAMP_ON,		0x00},
+	{REG_301D_RESERVED,	0x3f},
+	{REG_VPIX,		    0x04},
+	{REG_3028_RESERVED,	0x40},
+	{REG_3070_RESERVED,	0xdf},
+	{REG_3072_RESERVED,	0x20},
+	{REG_301B_RESERVED,	0x73},
+	{REG_OFFSET,		0x02},
+	{REG_30BD_RESERVED,	0x06},
+	{REG_30C2_RESERVED,	0x0b},
+	{REG_SHADE_CLK_ENABLE,	0x81},
+	{REG_3051_RESERVED,	0xe6},
+	{REG_3029_RESERVED,	0x02},
+	{REG_30BF_RESERVED,	0x00},
+	{REG_3022_RESERVED,	0x87},
+	{REG_3019_RESERVED,	0x60},
+	{REG_3019_RESERVED,	0x60},
+	{REG_3019_RESERVED,	0x60},
+	{REG_3019_RESERVED,	0x60},
+	{REG_3019_RESERVED,	0x60},
+	{REG_3019_RESERVED,	0x60},
+	{REG_3152_RESERVED,	0x08},
+	{REG_3150_RESERVED,	0x50}, /* 090723  changes from 0x40 to 0x50 for PCLK=80MHz *//* Inverse PCLK = 0x50 */
+	{REG_3157_RESERVED,	0x04}, /* 090723  changes from 0x00 to 0x04 for PCLK=80MHz */
 	/* PCLK Delay offset; 0x0a will delay around 4ns at 80MHz */
-	REG_3159_RESERVED,	0x0f, /* 090723 Steven_Yeh changes from 0x00 to 0x0f for PCLK=80MHz */
+	{REG_3159_RESERVED,	0x0f}, /* 090723  changes from 0x00 to 0x0f for PCLK=80MHz */
 	/* HS, VS driving strength [3:2]=>VS, \
 	[1:0]=>HS 00:2mA, 01:4mA, 10:6mA, 11:8mA */
-	REG_315A_RESERVED,	0xf0, /* 090723 Steven_Yeh changes from 0x10 to 0xf0 for PCLK=80MHz */
+	{REG_315A_RESERVED,	0xf0}, /* 090723  changes from 0x10 to 0xf0 for PCLK=80MHz */
 	/* PCLK, DATA driving strength [7:6]=>data, \
 	[5:4]=>PCLK 00:2mA, 01:4mA, 10:6mA, 11:8mA */
 	/* AEC Setting */
-	REG_ANALOGUE_GAIN_CODE_GLOBAL_MSB,	0x00,
-	REG_ANALOGUE_GAIN_CODE_GLOBAL_LSB,	0x80,
-	REG_FINE_INTEGRATION_TIME,		0x02,
-	REG_COARSE_INTEGRATION_TIME,		0x03,
+	{REG_ANALOGUE_GAIN_CODE_GLOBAL_MSB,	0x00},
+	{REG_ANALOGUE_GAIN_CODE_GLOBAL_LSB,	0x80},
+	{REG_FINE_INTEGRATION_TIME,		    0x02},
+	{REG_COARSE_INTEGRATION_TIME,		0x03},
 	/* Preview LC config Setting */
-	REG_SH4CH_BLK_WIDTH_R,		0x52,
-	REG_SH4CH_BLK_HEIGHT_R,		0x3e,
-	REG_SH4CH_STEP_X_R_MSB,		0x03,
-	REG_SH4CH_STEP_X_R_LSB,		0x1f,
-	REG_SH4CH_STEP_Y_R_MSB,		0x04,
-	REG_SH4CH_STEP_Y_R_LSB,		0x21,
-	REG_SH4CH_START_BLK_CNT_X_R,	0x04,
-	REG_SH4CH_START_BLK_INT_X_R,	0x00,
-	REG_SH4CH_START_FRAC_X_R_MSB,	0x0c,
-	REG_SH4CH_START_FRAC_X_R_LSB,	0x7c,
-	REG_SH4CH_START_BLK_CNT_Y_R,	0x04,
-	REG_SH4CH_START_BLK_INT_Y_R,	0x00,
-	REG_SH4CH_START_FRAC_Y_R_MSB,	0x10,
-	REG_SH4CH_START_FRAC_Y_R_LSB,	0x84,
-	/*LC setting Start*/
-	0x3200, 0x00,
-	0x3201, 0xbe,
-	0x3202, 0x4e,
-	0x3203, 0x0f,
-	0x3204, 0xb9,
-	0x3205, 0x07,
-	0x3206, 0x00,
-	0x3207, 0x4b,
-	0x3208, 0xdf,
-	0x3209, 0x0f,
-	0x320a, 0xc6,
-	0x320b, 0x39,
-	0x320c, 0x00,
-	0x320d, 0x13,
-	0x320e, 0xee,
-	0x320f, 0x00,
-	0x3210, 0x14,
-	0x3211, 0x79,
-	0x3212, 0x0f,
-	0x3213, 0x9d,
-	0x3214, 0xed,
-	0x3215, 0x00,
-	0x3216, 0x3d,
-	0x3217, 0x02,
-	0x3218, 0x0f,
-	0x3219, 0xa8,
-	0x321a, 0x6a,
-	0x321b, 0x00,
-	0x321c, 0x4c,
-	0x321d, 0x9a,
-	0x321e, 0x0f,
-	0x321f, 0xfb,
-	0x3220, 0xdb,
-	0x3221, 0x0f,
-	0x3222, 0xc8,
-	0x3223, 0x1a,
-	0x3224, 0x00,
-	0x3225, 0x5b,
-	0x3226, 0xf3,
-	0x3227, 0x0f,
-	0x3228, 0xae,
-	0x3229, 0xe3,
-	0x322a, 0x00,
-	0x322b, 0x5b,
-	0x322c, 0xc8,
-	0x322d, 0x0f,
-	0x322e, 0xc3,
-	0x322f, 0xf6,
-	0x3230, 0x0f,
-	0x3231, 0xe4,
-	0x3232, 0xb3,
-	0x3233, 0x00,
-	0x3234, 0x58,
-	0x3235, 0xdf,
-	0x3236, 0x0f,
-	0x3237, 0xbf,
-	0x3238, 0x67,
-	0x3239, 0x00,
-	0x323a, 0x3c,
-	0x323b, 0x8e,
-	0x323c, 0x0f,
-	0x323d, 0xd0,
-	0x323e, 0x3d,
-	0x323f, 0x00,
-	0x3240, 0x11,
-	0x3241, 0xfd,
-	0x3242, 0x00,
-	0x3243, 0x1a,
-	0x3244, 0xf0,
-	0x3245, 0x0f,
-	0x3246, 0xbd,
-	0x3247, 0x5d,
-	0x3248, 0x00,
-	0x3249, 0x22,
-	0x324a, 0x32,
-	0x324b, 0x0f,
-	0x324c, 0xff,
-	0x324d, 0x2e,
-	0x324e, 0x0f,
-	0x324f, 0xeb,
-	0x3250, 0x0c,
-	0x3251, 0x00,
-	0x3252, 0x11,
-	0x3253, 0xbd,
-	0x3254, 0x00,
-	0x3255, 0x17,
-	0x3256, 0xda,
-	0x3257, 0x0f,
-	0x3258, 0xeb,
-	0x3259, 0xf9,
-	0x325a, 0x00,
-	0x325b, 0x00,
-	0x325c, 0x81,
-	0x325d, 0x0f,
-	0x325e, 0xdf,
-	0x325f, 0x3e,
-	0x3260, 0x00,
-	0x3261, 0x2c,
-	0x3262, 0x9f,
-	0x3263, 0x0f,
-	0x3264, 0xe9,
-	0x3265, 0xd7,
-	0x3266, 0x0f,
-	0x3267, 0xd1,
-	0x3268, 0x83,
-	0x3269, 0x00,
-	0x326a, 0x3e,
-	0x326b, 0x18,
-	0x326c, 0x00,
-	0x326d, 0xcb,
-	0x326e, 0x32,
-	0x326f, 0x0f,
-	0x3270, 0xaf,
-	0x3271, 0xe3,
-	0x3272, 0x00,
-	0x3273, 0x51,
-	0x3274, 0xc8,
-	0x3275, 0x0f,
-	0x3276, 0xc5,
-	0x3277, 0x4c,
-	0x3278, 0x00,
-	0x3279, 0x13,
-	0x327a, 0x30,
-	0x327b, 0x00,
-	0x327c, 0x15,
-	0x327d, 0x7b,
-	0x327e, 0x0f,
-	0x327f, 0x97,
-	0x3280, 0x3f,
-	0x3281, 0x00,
-	0x3282, 0x3e,
-	0x3283, 0x26,
-	0x3284, 0x0f,
-	0x3285, 0xb3,
-	0x3286, 0x02,
-	0x3287, 0x00,
-	0x3288, 0x37,
-	0x3289, 0x73,
-	0x328a, 0x00,
-	0x328b, 0x0f,
-	0x328c, 0xd7,
-	0x328d, 0x0f,
-	0x328e, 0xbf,
-	0x328f, 0xdc,
-	0x3290, 0x00,
-	0x3291, 0x5a,
-	0x3292, 0x9b,
-	0x3293, 0x0f,
-	0x3294, 0xaf,
-	0x3295, 0x68,
-	0x3296, 0x00,
-	0x3297, 0x4c,
-	0x3298, 0xdb,
-	0x3299, 0x0f,
-	0x329a, 0xdc,
-	0x329b, 0xb5,
-	0x329c, 0x0f,
-	0x329d, 0xca,
-	0x329e, 0x69,
-	0x329f, 0x00,
-	0x32a0, 0x68,
-	0x32a1, 0x0a,
-	0x32a2, 0x0f,
-	0x32a3, 0xc9,
-	0x32a4, 0x6c,
-	0x32a5, 0x00,
-	0x32a6, 0x37,
-	0x32a7, 0x6e,
-	0x32a8, 0x0f,
-	0x32a9, 0xe2,
-	0x32aa, 0x22,
-	0x32ab, 0x0f,
-	0x32ac, 0xfd,
-	0x32ad, 0x8b,
-	0x32ae, 0x00,
-	0x32af, 0x36,
-	0x32b0, 0x33,
-	0x32b1, 0x0f,
-	0x32b2, 0xa3,
-	0x32b3, 0xf7,
-	0x32b4, 0x00,
-	0x32b5, 0x1b,
-	0x32b6, 0xd5,
-	0x32b7, 0x00,
-	0x32b8, 0x0a,
-	0x32b9, 0x4f,
-	0x32ba, 0x0f,
-	0x32bb, 0xd6,
-	0x32bc, 0x4d,
-	0x32bd, 0x00,
-	0x32be, 0x21,
-	0x32bf, 0x85,
-	0x32c0, 0x0f,
-	0x32c1, 0xfc,
-	0x32c2, 0x04,
-	0x32c3, 0x00,
-	0x32c4, 0x10,
-	0x32c5, 0x8c,
-	0x32c6, 0x00,
-	0x32c7, 0x00,
-	0x32c8, 0xf5,
-	0x32c9, 0x0f,
-	0x32ca, 0xd4,
-	0x32cb, 0xf3,
-	0x32cc, 0x00,
-	0x32cd, 0x3b,
-	0x32ce, 0x31,
-	0x32cf, 0x0f,
-	0x32d0, 0xe0,
-	0x32d1, 0xb3,
-	0x32d2, 0x0f,
-	0x32d3, 0xe4,
-	0x32d4, 0xa1,
-	0x32d5, 0x00,
-	0x32d6, 0x22,
-	0x32d7, 0x10,
-	0x32d8, 0x00,
-	0x32d9, 0xa7,
-	0x32da, 0x91,
-	0x32db, 0x0f,
-	0x32dc, 0xc6,
-	0x32dd, 0xd2,
-	0x32de, 0x00,
-	0x32df, 0x3a,
-	0x32e0, 0x5e,
-	0x32e1, 0x0f,
-	0x32e2, 0xd6,
-	0x32e3, 0xe0,
-	0x32e4, 0x00,
-	0x32e5, 0x0f,
-	0x32e6, 0xa2,
-	0x32e7, 0x00,
-	0x32e8, 0x0b,
-	0x32e9, 0x02,
-	0x32ea, 0x0f,
-	0x32eb, 0xb3,
-	0x32ec, 0xdd,
-	0x32ed, 0x00,
-	0x32ee, 0x2f,
-	0x32ef, 0xa2,
-	0x32f0, 0x0f,
-	0x32f1, 0xbb,
-	0x32f2, 0x1f,
-	0x32f3, 0x00,
-	0x32f4, 0x38,
-	0x32f5, 0x09,
-	0x32f6, 0x0f,
-	0x32f7, 0xfc,
-	0x32f8, 0xc4,
-	0x32f9, 0x0f,
-	0x32fa, 0xde,
-	0x32fb, 0x51,
-	0x32fc, 0x00,
-	0x32fd, 0x3c,
-	0x32fe, 0xdb,
-	0x32ff, 0x0f,
-	0x3300, 0xc3,
-	0x3301, 0x2e,
-	0x3302, 0x00,
-	0x3303, 0x4a,
-	0x3304, 0x96,
-	0x3305, 0x0f,
-	0x3306, 0xd7,
-	0x3307, 0x20,
-	0x3308, 0x0f,
-	0x3309, 0xe3,
-	0x330a, 0x64,
-	0x330b, 0x00,
-	0x330c, 0x3b,
-	0x330d, 0xde,
-	0x330e, 0x0f,
-	0x330f, 0xe2,
-	0x3310, 0xb6,
-	0x3311, 0x00,
-	0x3312, 0x29,
-	0x3313, 0xfd,
-	0x3314, 0x0f,
-	0x3315, 0xd3,
-	0x3316, 0xee,
-	0x3317, 0x00,
-	0x3318, 0x0c,
-	0x3319, 0x40,
-	0x331a, 0x00,
-	0x331b, 0x1d,
-	0x331c, 0x96,
-	0x331d, 0x0f,
-	0x331e, 0xd4,
-	0x331f, 0xd9,
-	0x3320, 0x00,
-	0x3321, 0x0e,
-	0x3322, 0xa8,
-	0x3323, 0x00,
-	0x3324, 0x02,
-	0x3325, 0xc6,
-	0x3326, 0x0f,
-	0x3327, 0xf3,
-	0x3328, 0xc1,
-	0x3329, 0x00,
-	0x332a, 0x0f,
-	0x332b, 0xe2,
-	0x332c, 0x00,
-	0x332d, 0x03,
-	0x332e, 0x56,
-	0x332f, 0x0f,
-	0x3330, 0xf4,
-	0x3331, 0xc0,
-	0x3332, 0x0f,
-	0x3333, 0xfe,
-	0x3334, 0xc5,
-	0x3335, 0x0f,
-	0x3336, 0xe8,
-	0x3337, 0xb8,
-	0x3338, 0x00,
-	0x3339, 0x1e,
-	0x333a, 0xb0,
-	0x333b, 0x0f,
-	0x333c, 0xf2,
-	0x333d, 0x01,
-	0x333e, 0x0f,
-	0x333f, 0xe4,
-	0x3340, 0x68,
-	0x3341, 0x00,
-	0x3342, 0x27,
-	0x3343, 0x00,
-	0x3344, 0x00,
-	0x3345, 0xc0,
-	0x3346, 0x46,
-	0x3347, 0x0f,
-	0x3348, 0xbb,
-	0x3349, 0x8b,
-	0x334a, 0x00,
-	0x334b, 0x46,
-	0x334c, 0xea,
-	0x334d, 0x0f,
-	0x334e, 0xcc,
-	0x334f, 0xb7,
-	0x3350, 0x00,
-	0x3351, 0x10,
-	0x3352, 0x01,
-	0x3353, 0x00,
-	0x3354, 0x13,
-	0x3355, 0xe1,
-	0x3356, 0x0f,
-	0x3357, 0x9f,
-	0x3358, 0xff,
-	0x3359, 0x00,
-	0x335a, 0x3d,
-	0x335b, 0x6c,
-	0x335c, 0x0f,
-	0x335d, 0xa7,
-	0x335e, 0x7b,
-	0x335f, 0x00,
-	0x3360, 0x4b,
-	0x3361, 0x91,
-	0x3362, 0x0f,
-	0x3363, 0xfb,
-	0x3364, 0x99,
-	0x3365, 0x0f,
-	0x3366, 0xcc,
-	0x3367, 0x52,
-	0x3368, 0x00,
-	0x3369, 0x53,
-	0x336a, 0x00,
-	0x336b, 0x0f,
-	0x336c, 0xaa,
-	0x336d, 0xa2,
-	0x336e, 0x00,
-	0x336f, 0x64,
-	0x3370, 0xa2,
-	0x3371, 0x0f,
-	0x3372, 0xbe,
-	0x3373, 0xc4,
-	0x3374, 0x0f,
-	0x3375, 0xe4,
-	0x3376, 0xbb,
-	0x3377, 0x00,
-	0x3378, 0x56,
-	0x3379, 0xd8,
-	0x337a, 0x0f,
-	0x337b, 0xc8,
-	0x337c, 0xdc,
-	0x337d, 0x00,
-	0x337e, 0x44,
-	0x337f, 0xa7,
-	0x3380, 0x0f,
-	0x3381, 0xbd,
-	0x3382, 0xca,
-	0x3383, 0x00,
-	0x3384, 0x29,
-	0x3385, 0xf7,
-	0x3386, 0x00,
-	0x3387, 0x08,
-	0x3388, 0xf2,
-	0x3389, 0x0f,
-	0x338a, 0xc6,
-	0x338b, 0x1c,
-	0x338c, 0x00,
-	0x338d, 0x28,
-	0x338e, 0x3b,
-	0x338f, 0x0f,
-	0x3390, 0xfc,
-	0x3391, 0x30,
-	0x3392, 0x0f,
-	0x3393, 0xee,
-	0x3394, 0x3e,
-	0x3395, 0x00,
-	0x3396, 0x02,
-	0x3397, 0x32,
-	0x3398, 0x00,
-	0x3399, 0x25,
-	0x339a, 0xb6,
-	0x339b, 0x0f,
-	0x339c, 0xe9,
-	0x339d, 0xd5,
-	0x339e, 0x0f,
-	0x339f, 0xf3,
-	0x33a0, 0x80,
-	0x33a1, 0x0f,
-	0x33a2, 0xda,
-	0x33a3, 0x56,
-	0x33a4, 0x00,
-	0x33a5, 0x3c,
-	0x33a6, 0x4a,
-	0x33a7, 0x0f,
-	0x33a8, 0xe0,
-	0x33a9, 0x9d,
-	0x33aa, 0x0f,
-	0x33ab, 0xd9,
-	0x33ac, 0x7d,
-	0x33ad, 0x00,
-	0x33ae, 0x34,
-	0x33af, 0x54,
-	0x309D, 0x62,
-	0x309d, 0x22,		/* shading enable */
-	/*LC setting End*/
+	{REG_SH4CH_BLK_WIDTH_R,		    0x52},
+	{REG_SH4CH_BLK_HEIGHT_R,		0x3e},
+	{REG_SH4CH_STEP_X_R_MSB,		0x03},
+	{REG_SH4CH_STEP_X_R_LSB,		0x1f},
+	{REG_SH4CH_STEP_Y_R_MSB,		0x04},
+	{REG_SH4CH_STEP_Y_R_LSB,		0x21},
+	{REG_SH4CH_START_BLK_CNT_X_R,	0x04},
+	{REG_SH4CH_START_BLK_INT_X_R,	0x00},
+	{REG_SH4CH_START_FRAC_X_R_MSB,	0x0c},
+	{REG_SH4CH_START_FRAC_X_R_LSB,	0x7c},
+	{REG_SH4CH_START_BLK_CNT_Y_R,	0x04},
+	{REG_SH4CH_START_BLK_INT_Y_R,	0x00},
+	{REG_SH4CH_START_FRAC_Y_R_MSB,	0x10},
+	{REG_SH4CH_START_FRAC_Y_R_LSB,	0x84},
+	},
+
+	/*EVT5*/
+	{
+	{REG_PRE_PLL_CLK_DIV,	0x06}, /* PLL setting */
+	{REG_PLL_MULTIPLIER_MSB,	0x00},
+	{REG_PLL_MULTIPLIER_LSB,	0xA0}, /* 090723 Steven_Yeh changes from 0x88 to 0xA0 for PCLK=80MHz */
+	{REG_VT_PIX_CLK_DIV,	0x08}, /* 090723 Steven_Yeh changes from 0x0A to 0x08 for PCLK=80MHz */
+	{REG_VT_SYS_CLK_DIV,	0x01},
+	{REG_OP_PIX_CLK_DIV,	0x08}, /* 090723 Steven_Yeh changes from 0x0A to 0x08 for PCLK=80MHz */
+	{REG_OP_SYS_CLK_DIV,	0x01},
+	/* Data Format */
+	{REG_CCP_DATA_FORMAT_MSB,	0x0a},
+	{REG_CCP_DATA_FORMAT_LSB,	0x0a},
+	/* Preview Output Size */
+	{REG_X_OUTPUT_SIZE_MSB,	0x05},
+	{REG_X_OUTPUT_SIZE_LSB,	0x10},
+	{REG_Y_OUTPUT_SIZE_MSB,	0x03},
+	{REG_Y_OUTPUT_SIZE_LSB,	0xcc},
+	{REG_X_ADDR_START_MSB,	0x00},
+	{REG_X_ADDR_START_LSB,	0x08},
+	{REG_Y_ADDR_START_MSB,	0x00},
+	{REG_Y_ADDR_START_LSB,	0x08},
+	{REG_X_ADDR_END_MSB,	0x0a},
+	{REG_X_ADDR_END_LSB,	0x27},
+	{REG_Y_ADDR_END_MSB,	0x07},
+	{REG_Y_ADDR_END_LSB,	0x9f},
+	/* Frame format */
+	{REG_FRAME_LENGTH_LINES_MSB,	0x03},
+	{REG_FRAME_LENGTH_LINES_LSB,	0xe2},
+	{REG_LINE_LENGTH_PCK_MSB,	0x0a},
+	{REG_LINE_LENGTH_PCK_LSB,	0xac},
+	/* Preview Binning */
+	{REG_X_EVEN_INC,		0x01},
+	{REG_X_ODD_INC,		0x01},
+	{REG_Y_EVEN_INC,		0x01},
+	{REG_Y_ODD_INC,		0x03},
+	{REG_BINNING_ENABLE,	0x06},
+	/* Samsung MSR Setting */
+	{REG_SEL_CCP,		0x01},
+	{REG_LD_START,		0x03},
+	/* 090811 Add EVT5 sensor Samsung MSR setting, Start */
+	{REG_LD_END,		0x99},
+	{REG_SL_START,		0x02},
+	{REG_SL_END,		0x9A},
+	{REG_RX_START,		0x0f},
+	{REG_S1_START,		0x05},
+	{REG_S1_END,		0x3c},
+	{REG_S1S_START,		0x8c},
+	{REG_S1S_END,		0x26},
+	{REG_S3_START,		0x05},
+	{REG_S3_END,		0x3a},
+	{REG_CMP_EN_START,	0x10},
+	{REG_CLP_SL_START,	0x02},
+	{REG_CLP_SL_END,	0x3e},
+	{REG_OFF_START,		0x02},
+	{REG_RMP_EN_START,	0x0e},
+	{REG_TX_START,		0x46},
+	{REG_TX_END,		0x64},
+	{REG_STX_WIDTH,		0x1e},
+	{REG_CLAMP_ON,		0x00},
+	{REG_301D_RESERVED,	0x3f},
+	{REG_VPIX,		    0x04},
+	{REG_3028_RESERVED,	0x40},
+	{REG_3070_RESERVED,	0xdf},
+	{REG_3072_RESERVED,	0x20},
+	{REG_301B_RESERVED,	0x73},
+	{REG_OFFSET,		0x02},
+	{REG_30BD_RESERVED,	0x06},
+	{REG_30C2_RESERVED,	0x0b},
+	{REG_SHADE_CLK_ENABLE,	0x81},
+	{REG_3051_RESERVED,	0xe6},
+	{REG_3029_RESERVED,	0x02},
+	{REG_30BF_RESERVED,	0x00},
+	{REG_3022_RESERVED,	0x87},
+	{REG_3019_RESERVED,	0x60},
+	{0x3060, 0x03},
+	{0x3061, 0x6C},
+	{0x3062, 0x00},
+	{0x3063, 0xD6},
+	{0x3023, 0x0C},
+	{REG_3152_RESERVED,	0x08},
+	{REG_3150_RESERVED,	0x50}, /* 090723 Steven_Yeh changes from 0x40 to 0x50 for PCLK=80MHz *//* Inverse PCLK = 0x50 */
+	{REG_3157_RESERVED,	0x04}, /* 090723 Steven_Yeh changes from 0x00 to 0x04 for PCLK=80MHz */
+	/* PCLK Delay offset; 0x0a will delay around 4ns at 80MHz */
+	{REG_3159_RESERVED,	0x0f}, /* 090723 Steven_Yeh changes from 0x00 to 0x0f for PCLK=80MHz */
+	/* HS, VS driving strength [3:2]=>VS, \
+	[1:0]=>HS 00:2mA, 01:4mA, 10:6mA, 11:8mA */
+	{REG_315A_RESERVED,	0xf0}, /* 090723 Steven_Yeh changes from 0x10 to 0xf0 for PCLK=80MHz */
+	/* PCLK, DATA driving strength [7:6]=>data, \
+	[5:4]=>PCLK 00:2mA, 01:4mA, 10:6mA, 11:8mA */
+	/* AEC Setting */
+	{REG_ANALOGUE_GAIN_CODE_GLOBAL_MSB,	0x00},
+	{REG_ANALOGUE_GAIN_CODE_GLOBAL_LSB,	0x80},
+	{REG_FINE_INTEGRATION_TIME,		    0x02},
+	{REG_COARSE_INTEGRATION_TIME,		0x03},
+	/* Preview LC config Setting */
+	{REG_SH4CH_BLK_WIDTH_R,		    0x52},
+	{REG_SH4CH_BLK_HEIGHT_R,		0x3e},
+	{REG_SH4CH_STEP_X_R_MSB,		0x03},
+	{REG_SH4CH_STEP_X_R_LSB,		0x1f},
+	{REG_SH4CH_STEP_Y_R_MSB,		0x04},
+	{REG_SH4CH_STEP_Y_R_LSB,		0x21},
+	{REG_SH4CH_START_BLK_CNT_X_R,	0x04},
+	{REG_SH4CH_START_BLK_INT_X_R,	0x00},
+	{REG_SH4CH_START_FRAC_X_R_MSB,	0x0c},
+	{REG_SH4CH_START_FRAC_X_R_LSB,	0x7c},
+	{REG_SH4CH_START_BLK_CNT_Y_R,	0x04},
+	{REG_SH4CH_START_BLK_INT_Y_R,	0x00},
+	{REG_SH4CH_START_FRAC_Y_R_MSB,	0x10},
+	{REG_SH4CH_START_FRAC_Y_R_LSB,	0x84},
+	}
 };
+
+struct s5k3e2fx_i2c_reg_conf lc_setting[2][NUM_LC_REG] = {
+	/*EVT4*/
+	{
+	/*LC setting Start*/
+	{0x3200, 0x00}, /* 09011  modify LC setting (t75-r82) setting */
+	{0x3201, 0x8a},
+	{0x3202, 0xa7},
+	{0x3203, 0x0f},
+	{0x3204, 0xe1},
+	{0x3205, 0x9e},
+	{0x3206, 0x00},
+	{0x3207, 0x12},
+	{0x3208, 0xfc},
+	{0x3209, 0x0f},
+	{0x320a, 0xfb},
+	{0x320b, 0xd9},
+	{0x320c, 0x00},
+	{0x320d, 0x01},
+	{0x320e, 0x07},
+	{0x320f, 0x00},
+	{0x3210, 0x00},
+	{0x3211, 0x52},
+	{0x3212, 0x0f},
+	{0x3213, 0xd5},
+	{0x3214, 0x04},
+	{0x3215, 0x00},
+	{0x3216, 0x0e},
+	{0x3217, 0x7e},
+	{0x3218, 0x0f},
+	{0x3219, 0xf3},
+	{0x321a, 0x05},
+	{0x321b, 0x00},
+	{0x321c, 0x06},
+	{0x321d, 0xe2},
+	{0x321e, 0x0f},
+	{0x321f, 0xff},
+	{0x3220, 0x65},
+	{0x3221, 0x0f},
+	{0x3222, 0xfe},
+	{0x3223, 0x1c},
+	{0x3224, 0x00},
+	{0x3225, 0x1c},
+	{0x3226, 0x3c},
+	{0x3227, 0x0f},
+	{0x3228, 0xe1},
+	{0x3229, 0x63},
+	{0x322a, 0x00},
+	{0x322b, 0x10},
+	{0x322c, 0xd1},
+	{0x322d, 0x00},
+	{0x322e, 0x02},
+	{0x322f, 0x6b},
+	{0x3230, 0x0f},
+	{0x3231, 0xf5},
+	{0x3232, 0x25},
+	{0x3233, 0x00},
+	{0x3234, 0x08},
+	{0x3235, 0xc8},
+	{0x3236, 0x0f},
+	{0x3237, 0xfd},
+	{0x3238, 0xd4},
+	{0x3239, 0x00},
+	{0x323a, 0x20},
+	{0x323b, 0xd1},
+	{0x323c, 0x0f},
+	{0x323d, 0xf3},
+	{0x323e, 0x3c},
+	{0x323f, 0x0f},
+	{0x3240, 0xf7},
+	{0x3241, 0x31},
+	{0x3242, 0x00},
+	{0x3243, 0x0c},
+	{0x3244, 0xc9},
+	{0x3245, 0x0f},
+	{0x3246, 0xf7},
+	{0x3247, 0x90},
+	{0x3248, 0x0f},
+	{0x3249, 0xed},
+	{0x324a, 0xdf},
+	{0x324b, 0x0f},
+	{0x324c, 0xfa},
+	{0x324d, 0x9b},
+	{0x324e, 0x0f},
+	{0x324f, 0xfa},
+	{0x3250, 0x8b},
+	{0x3251, 0x00},
+	{0x3252, 0x0a},
+	{0x3253, 0x3d},
+	{0x3254, 0x00},
+	{0x3255, 0x00},
+	{0x3256, 0x99},
+	{0x3257, 0x0f},
+	{0x3258, 0xf9},
+	{0x3259, 0xa2},
+	{0x325a, 0x00},
+	{0x325b, 0x18},
+	{0x325c, 0xdd},
+	{0x325d, 0x0f},
+	{0x325e, 0xeb},
+	{0x325f, 0x42},
+	{0x3260, 0x00},
+	{0x3261, 0x17},
+	{0x3262, 0x7c},
+	{0x3263, 0x0f},
+	{0x3264, 0xef},
+	{0x3265, 0x19},
+	{0x3266, 0x0f},
+	{0x3267, 0xfe},
+	{0x3268, 0x3d},
+	{0x3269, 0x00},
+	{0x326a, 0x0c},
+	{0x326b, 0x89},
+	{0x326c, 0x00},
+	{0x326d, 0x88},
+	{0x326e, 0xff},
+	{0x326f, 0x0f},
+	{0x3270, 0xe3},
+	{0x3271, 0x36},
+	{0x3272, 0x00},
+	{0x3273, 0x11},
+	{0x3274, 0xdf},
+	{0x3275, 0x0f},
+	{0x3276, 0xfc},
+	{0x3277, 0x9a},
+	{0x3278, 0x00},
+	{0x3279, 0x01},
+	{0x327a, 0x09},
+	{0x327b, 0x0f},
+	{0x327c, 0xff},
+	{0x327d, 0x97},
+	{0x327e, 0x0f},
+	{0x327f, 0xd8},
+	{0x3280, 0x0f},
+	{0x3281, 0x00},
+	{0x3282, 0x0b},
+	{0x3283, 0x39},
+	{0x3284, 0x0f},
+	{0x3285, 0xf3},
+	{0x3286, 0x13},
+	{0x3287, 0x00},
+	{0x3288, 0x08},
+	{0x3289, 0x1d},
+	{0x328a, 0x00},
+	{0x328b, 0x02},
+	{0x328c, 0xa4},
+	{0x328d, 0x0f},
+	{0x328e, 0xf9},
+	{0x328f, 0x71},
+	{0x3290, 0x00},
+	{0x3291, 0x16},
+	{0x3292, 0x77},
+	{0x3293, 0x0f},
+	{0x3294, 0xe6},
+	{0x3295, 0x88},
+	{0x3296, 0x00},
+	{0x3297, 0x15},
+	{0x3298, 0x06},
+	{0x3299, 0x0f},
+	{0x329a, 0xfb},
+	{0x329b, 0xdb},
+	{0x329c, 0x0f},
+	{0x329d, 0xec},
+	{0x329e, 0x3c},
+	{0x329f, 0x00},
+	{0x32a0, 0x17},
+	{0x32a1, 0xcc},
+	{0x32a2, 0x00},
+	{0x32a3, 0x03},
+	{0x32a4, 0x25},
+	{0x32a5, 0x00},
+	{0x32a6, 0x1a},
+	{0x32a7, 0x9b},
+	{0x32a8, 0x0f},
+	{0x32a9, 0xed},
+	{0x32aa, 0x0b},
+	{0x32ab, 0x0f},
+	{0x32ac, 0xfe},
+	{0x32ad, 0xe2},
+	{0x32ae, 0x00},
+	{0x32af, 0x1a},
+	{0x32b0, 0xc6},
+	{0x32b1, 0x0f},
+	{0x32b2, 0xe2},
+	{0x32b3, 0xb1},
+	{0x32b4, 0x0f},
+	{0x32b5, 0xf0},
+	{0x32b6, 0x7c},
+	{0x32b7, 0x0f},
+	{0x32b8, 0xfe},
+	{0x32b9, 0xd0},
+	{0x32ba, 0x0f},
+	{0x32bb, 0xfd},
+	{0x32bc, 0xc4},
+	{0x32bd, 0x00},
+	{0x32be, 0x06},
+	{0x32bf, 0x4d},
+	{0x32c0, 0x0f},
+	{0x32c1, 0xf9},
+	{0x32c2, 0xbe},
+	{0x32c3, 0x00},
+	{0x32c4, 0x02},
+	{0x32c5, 0x58},
+	{0x32c6, 0x00},
+	{0x32c7, 0x11},
+	{0x32c8, 0x60},
+	{0x32c9, 0x0f},
+	{0x32ca, 0xeb},
+	{0x32cb, 0x60},
+	{0x32cc, 0x00},
+	{0x32cd, 0x16},
+	{0x32ce, 0x25},
+	{0x32cf, 0x0f},
+	{0x32d0, 0xf2},
+	{0x32d1, 0x40},
+	{0x32d2, 0x0f},
+	{0x32d3, 0xf7},
+	{0x32d4, 0x9e},
+	{0x32d5, 0x00},
+	{0x32d6, 0x13},
+	{0x32d7, 0xd5},
+	{0x32d8, 0x00},
+	{0x32d9, 0x70},
+	{0x32da, 0xc7},
+	{0x32db, 0x0f},
+	{0x32dc, 0xec},
+	{0x32dd, 0x9f},
+	{0x32de, 0x00},
+	{0x32df, 0x09},
+	{0x32e0, 0xf3},
+	{0x32e1, 0x00},
+	{0x32e2, 0x00},
+	{0x32e3, 0xf2},
+	{0x32e4, 0x0f},
+	{0x32e5, 0xff},
+	{0x32e6, 0x30},
+	{0x32e7, 0x0f},
+	{0x32e8, 0xff},
+	{0x32e9, 0x27},
+	{0x32ea, 0x0f},
+	{0x32eb, 0xe4},
+	{0x32ec, 0x66},
+	{0x32ed, 0x00},
+	{0x32ee, 0x0a},
+	{0x32ef, 0xe9},
+	{0x32f0, 0x0f},
+	{0x32f1, 0xf4},
+	{0x32f2, 0xdd},
+	{0x32f3, 0x00},
+	{0x32f4, 0x05},
+	{0x32f5, 0xd1},
+	{0x32f6, 0x0f},
+	{0x32f7, 0xff},
+	{0x32f8, 0x29},
+	{0x32f9, 0x00},
+	{0x32fa, 0x00},
+	{0x32fb, 0x58},
+	{0x32fc, 0x00},
+	{0x32fd, 0x11},
+	{0x32fe, 0x32},
+	{0x32ff, 0x0f},
+	{0x3300, 0xe8},
+	{0x3301, 0x8e},
+	{0x3302, 0x00},
+	{0x3303, 0x12},
+	{0x3304, 0xc1},
+	{0x3305, 0x0f},
+	{0x3306, 0xff},
+	{0x3307, 0x8f},
+	{0x3308, 0x0f},
+	{0x3309, 0xf4},
+	{0x330a, 0x23},
+	{0x330b, 0x00},
+	{0x330c, 0x07},
+	{0x330d, 0xc4},
+	{0x330e, 0x0f},
+	{0x330f, 0xfe},
+	{0x3310, 0x11},
+	{0x3311, 0x00},
+	{0x3312, 0x1c},
+	{0x3313, 0x3a},
+	{0x3314, 0x0f},
+	{0x3315, 0xe9},
+	{0x3316, 0x73},
+	{0x3317, 0x00},
+	{0x3318, 0x00},
+	{0x3319, 0x78},
+	{0x331a, 0x00},
+	{0x331b, 0x0a},
+	{0x331c, 0x8b},
+	{0x331d, 0x0f},
+	{0x331e, 0xfc},
+	{0x331f, 0x0f},
+	{0x3320, 0x0f},
+	{0x3321, 0xfc},
+	{0x3322, 0xd3},
+	{0x3323, 0x0f},
+	{0x3324, 0xf6},
+	{0x3325, 0x43},
+	{0x3326, 0x00},
+	{0x3327, 0x03},
+	{0x3328, 0x06},
+	{0x3329, 0x00},
+	{0x332a, 0x06},
+	{0x332b, 0x41},
+	{0x332c, 0x00},
+	{0x332d, 0x01},
+	{0x332e, 0xae},
+	{0x332f, 0x0f},
+	{0x3330, 0xf3},
+	{0x3331, 0x9a},
+	{0x3332, 0x00},
+	{0x3333, 0x06},
+	{0x3334, 0x36},
+	{0x3335, 0x0f},
+	{0x3336, 0xf3},
+	{0x3337, 0xde},
+	{0x3338, 0x00},
+	{0x3339, 0x13},
+	{0x333a, 0x8e},
+	{0x333b, 0x0f},
+	{0x333c, 0xef},
+	{0x333d, 0xfb},
+	{0x333e, 0x0f},
+	{0x333f, 0xfb},
+	{0x3340, 0x87},
+	{0x3341, 0x00},
+	{0x3342, 0x11},
+	{0x3343, 0x60},
+	{0x3344, 0x00},
+	{0x3345, 0x8b},
+	{0x3346, 0xb4},
+	{0x3347, 0x0f},
+	{0x3348, 0xe4},
+	{0x3349, 0x4e},
+	{0x334a, 0x00},
+	{0x334b, 0x12},
+	{0x334c, 0x0e},
+	{0x334d, 0x0f},
+	{0x334e, 0xf8},
+	{0x334f, 0xf4},
+	{0x3350, 0x00},
+	{0x3351, 0x07},
+	{0x3352, 0x27},
+	{0x3353, 0x0f},
+	{0x3354, 0xfb},
+	{0x3355, 0x9b},
+	{0x3356, 0x0f},
+	{0x3357, 0xd7},
+	{0x3358, 0xc0},
+	{0x3359, 0x00},
+	{0x335a, 0x0c},
+	{0x335b, 0x12},
+	{0x335c, 0x0f},
+	{0x335d, 0xf2},
+	{0x335e, 0xda},
+	{0x335f, 0x00},
+	{0x3360, 0x0c},
+	{0x3361, 0x1b},
+	{0x3362, 0x0f},
+	{0x3363, 0xf5},
+	{0x3364, 0x6f},
+	{0x3365, 0x00},
+	{0x3366, 0x05},
+	{0x3367, 0xd8},
+	{0x3368, 0x00},
+	{0x3369, 0x12},
+	{0x336a, 0x7c},
+	{0x336b, 0x0f},
+	{0x336c, 0xe5},
+	{0x336d, 0xe8},
+	{0x336e, 0x00},
+	{0x336f, 0x0c},
+	{0x3370, 0xad},
+	{0x3371, 0x00},
+	{0x3372, 0x04},
+	{0x3373, 0xc3},
+	{0x3374, 0x0f},
+	{0x3375, 0xf4},
+	{0x3376, 0x91},
+	{0x3377, 0x00},
+	{0x3378, 0x09},
+	{0x3379, 0xab},
+	{0x337a, 0x00},
+	{0x337b, 0x09},
+	{0x337c, 0xbc},
+	{0x337d, 0x00},
+	{0x337e, 0x1c},
+	{0x337f, 0x3b},
+	{0x3380, 0x0f},
+	{0x3381, 0xf7},
+	{0x3382, 0x00},
+	{0x3383, 0x0f},
+	{0x3384, 0xf6},
+	{0x3385, 0xfb},
+	{0x3386, 0x00},
+	{0x3387, 0x10},
+	{0x3388, 0x59},
+	{0x3389, 0x0f},
+	{0x338a, 0xed},
+	{0x338b, 0x65},
+	{0x338c, 0x0f},
+	{0x338d, 0xed},
+	{0x338e, 0x18},
+	{0x338f, 0x0f},
+	{0x3390, 0xfd},
+	{0x3391, 0xae},
+	{0x3392, 0x0f},
+	{0x3393, 0xf8},
+	{0x3394, 0x35},
+	{0x3395, 0x00},
+	{0x3396, 0x01},
+	{0x3397, 0xcb},
+	{0x3398, 0x00},
+	{0x3399, 0x01},
+	{0x339a, 0xe8},
+	{0x339b, 0x00},
+	{0x339c, 0x0a},
+	{0x339d, 0x5f},
+	{0x339e, 0x00},
+	{0x339f, 0x11},
+	{0x33a0, 0xa0},
+	{0x33a1, 0x0f},
+	{0x33a2, 0xe9},
+	{0x33a3, 0xeb},
+	{0x33a4, 0x00},
+	{0x33a5, 0x18},
+	{0x33a6, 0x77},
+	{0x33a7, 0x0f},
+	{0x33a8, 0xf9},
+	{0x33a9, 0x9b},
+	{0x33aa, 0x0f},
+	{0x33ab, 0xf8},
+	{0x33ac, 0xd0},
+	{0x33ad, 0x00},
+	{0x33ae, 0x00},
+	{0x33af, 0xd2},
+	{0x309D, 0x62},
+	{0x309d, 0x22},		/* shading enable */
+	/*LC setting End*/
+	},
+	/*EVT5*/
+	{
+	/*LC setting Start*/
+	{0x3200, 0x00},  /* 09011  modify LC setting (t75-r82) setting */
+	{0x3201, 0x8a},
+	{0x3202, 0xa7},
+	{0x3203, 0x0f},
+	{0x3204, 0xe1},
+	{0x3205, 0x9e},
+	{0x3206, 0x00},
+	{0x3207, 0x12},
+	{0x3208, 0xfc},
+	{0x3209, 0x0f},
+	{0x320a, 0xfb},
+	{0x320b, 0xd9},
+	{0x320c, 0x00},
+	{0x320d, 0x01},
+	{0x320e, 0x07},
+	{0x320f, 0x00},
+	{0x3210, 0x00},
+	{0x3211, 0x52},
+	{0x3212, 0x0f},
+	{0x3213, 0xd5},
+	{0x3214, 0x04},
+	{0x3215, 0x00},
+	{0x3216, 0x0e},
+	{0x3217, 0x7e},
+	{0x3218, 0x0f},
+	{0x3219, 0xf3},
+	{0x321a, 0x05},
+	{0x321b, 0x00},
+	{0x321c, 0x06},
+	{0x321d, 0xe2},
+	{0x321e, 0x0f},
+	{0x321f, 0xff},
+	{0x3220, 0x65},
+	{0x3221, 0x0f},
+	{0x3222, 0xfe},
+	{0x3223, 0x1c},
+	{0x3224, 0x00},
+	{0x3225, 0x1c},
+	{0x3226, 0x3c},
+	{0x3227, 0x0f},
+	{0x3228, 0xe1},
+	{0x3229, 0x63},
+	{0x322a, 0x00},
+	{0x322b, 0x10},
+	{0x322c, 0xd1},
+	{0x322d, 0x00},
+	{0x322e, 0x02},
+	{0x322f, 0x6b},
+	{0x3230, 0x0f},
+	{0x3231, 0xf5},
+	{0x3232, 0x25},
+	{0x3233, 0x00},
+	{0x3234, 0x08},
+	{0x3235, 0xc8},
+	{0x3236, 0x0f},
+	{0x3237, 0xfd},
+	{0x3238, 0xd4},
+	{0x3239, 0x00},
+	{0x323a, 0x20},
+	{0x323b, 0xd1},
+	{0x323c, 0x0f},
+	{0x323d, 0xf3},
+	{0x323e, 0x3c},
+	{0x323f, 0x0f},
+	{0x3240, 0xf7},
+	{0x3241, 0x31},
+	{0x3242, 0x00},
+	{0x3243, 0x0c},
+	{0x3244, 0xc9},
+	{0x3245, 0x0f},
+	{0x3246, 0xf7},
+	{0x3247, 0x90},
+	{0x3248, 0x0f},
+	{0x3249, 0xed},
+	{0x324a, 0xdf},
+	{0x324b, 0x0f},
+	{0x324c, 0xfa},
+	{0x324d, 0x9b},
+	{0x324e, 0x0f},
+	{0x324f, 0xfa},
+	{0x3250, 0x8b},
+	{0x3251, 0x00},
+	{0x3252, 0x0a},
+	{0x3253, 0x3d},
+	{0x3254, 0x00},
+	{0x3255, 0x00},
+	{0x3256, 0x99},
+	{0x3257, 0x0f},
+	{0x3258, 0xf9},
+	{0x3259, 0xa2},
+	{0x325a, 0x00},
+	{0x325b, 0x18},
+	{0x325c, 0xdd},
+	{0x325d, 0x0f},
+	{0x325e, 0xeb},
+	{0x325f, 0x42},
+	{0x3260, 0x00},
+	{0x3261, 0x17},
+	{0x3262, 0x7c},
+	{0x3263, 0x0f},
+	{0x3264, 0xef},
+	{0x3265, 0x19},
+	{0x3266, 0x0f},
+	{0x3267, 0xfe},
+	{0x3268, 0x3d},
+	{0x3269, 0x00},
+	{0x326a, 0x0c},
+	{0x326b, 0x89},
+	{0x326c, 0x00},
+	{0x326d, 0x88},
+	{0x326e, 0xff},
+	{0x326f, 0x0f},
+	{0x3270, 0xe3},
+	{0x3271, 0x36},
+	{0x3272, 0x00},
+	{0x3273, 0x11},
+	{0x3274, 0xdf},
+	{0x3275, 0x0f},
+	{0x3276, 0xfc},
+	{0x3277, 0x9a},
+	{0x3278, 0x00},
+	{0x3279, 0x01},
+	{0x327a, 0x09},
+	{0x327b, 0x0f},
+	{0x327c, 0xff},
+	{0x327d, 0x97},
+	{0x327e, 0x0f},
+	{0x327f, 0xd8},
+	{0x3280, 0x0f},
+	{0x3281, 0x00},
+	{0x3282, 0x0b},
+	{0x3283, 0x39},
+	{0x3284, 0x0f},
+	{0x3285, 0xf3},
+	{0x3286, 0x13},
+	{0x3287, 0x00},
+	{0x3288, 0x08},
+	{0x3289, 0x1d},
+	{0x328a, 0x00},
+	{0x328b, 0x02},
+	{0x328c, 0xa4},
+	{0x328d, 0x0f},
+	{0x328e, 0xf9},
+	{0x328f, 0x71},
+	{0x3290, 0x00},
+	{0x3291, 0x16},
+	{0x3292, 0x77},
+	{0x3293, 0x0f},
+	{0x3294, 0xe6},
+	{0x3295, 0x88},
+	{0x3296, 0x00},
+	{0x3297, 0x15},
+	{0x3298, 0x06},
+	{0x3299, 0x0f},
+	{0x329a, 0xfb},
+	{0x329b, 0xdb},
+	{0x329c, 0x0f},
+	{0x329d, 0xec},
+	{0x329e, 0x3c},
+	{0x329f, 0x00},
+	{0x32a0, 0x17},
+	{0x32a1, 0xcc},
+	{0x32a2, 0x00},
+	{0x32a3, 0x03},
+	{0x32a4, 0x25},
+	{0x32a5, 0x00},
+	{0x32a6, 0x1a},
+	{0x32a7, 0x9b},
+	{0x32a8, 0x0f},
+	{0x32a9, 0xed},
+	{0x32aa, 0x0b},
+	{0x32ab, 0x0f},
+	{0x32ac, 0xfe},
+	{0x32ad, 0xe2},
+	{0x32ae, 0x00},
+	{0x32af, 0x1a},
+	{0x32b0, 0xc6},
+	{0x32b1, 0x0f},
+	{0x32b2, 0xe2},
+	{0x32b3, 0xb1},
+	{0x32b4, 0x0f},
+	{0x32b5, 0xf0},
+	{0x32b6, 0x7c},
+	{0x32b7, 0x0f},
+	{0x32b8, 0xfe},
+	{0x32b9, 0xd0},
+	{0x32ba, 0x0f},
+	{0x32bb, 0xfd},
+	{0x32bc, 0xc4},
+	{0x32bd, 0x00},
+	{0x32be, 0x06},
+	{0x32bf, 0x4d},
+	{0x32c0, 0x0f},
+	{0x32c1, 0xf9},
+	{0x32c2, 0xbe},
+	{0x32c3, 0x00},
+	{0x32c4, 0x02},
+	{0x32c5, 0x58},
+	{0x32c6, 0x00},
+	{0x32c7, 0x11},
+	{0x32c8, 0x60},
+	{0x32c9, 0x0f},
+	{0x32ca, 0xeb},
+	{0x32cb, 0x60},
+	{0x32cc, 0x00},
+	{0x32cd, 0x16},
+	{0x32ce, 0x25},
+	{0x32cf, 0x0f},
+	{0x32d0, 0xf2},
+	{0x32d1, 0x40},
+	{0x32d2, 0x0f},
+	{0x32d3, 0xf7},
+	{0x32d4, 0x9e},
+	{0x32d5, 0x00},
+	{0x32d6, 0x13},
+	{0x32d7, 0xd5},
+	{0x32d8, 0x00},
+	{0x32d9, 0x70},
+	{0x32da, 0xc7},
+	{0x32db, 0x0f},
+	{0x32dc, 0xec},
+	{0x32dd, 0x9f},
+	{0x32de, 0x00},
+	{0x32df, 0x09},
+	{0x32e0, 0xf3},
+	{0x32e1, 0x00},
+	{0x32e2, 0x00},
+	{0x32e3, 0xf2},
+	{0x32e4, 0x0f},
+	{0x32e5, 0xff},
+	{0x32e6, 0x30},
+	{0x32e7, 0x0f},
+	{0x32e8, 0xff},
+	{0x32e9, 0x27},
+	{0x32ea, 0x0f},
+	{0x32eb, 0xe4},
+	{0x32ec, 0x66},
+	{0x32ed, 0x00},
+	{0x32ee, 0x0a},
+	{0x32ef, 0xe9},
+	{0x32f0, 0x0f},
+	{0x32f1, 0xf4},
+	{0x32f2, 0xdd},
+	{0x32f3, 0x00},
+	{0x32f4, 0x05},
+	{0x32f5, 0xd1},
+	{0x32f6, 0x0f},
+	{0x32f7, 0xff},
+	{0x32f8, 0x29},
+	{0x32f9, 0x00},
+	{0x32fa, 0x00},
+	{0x32fb, 0x58},
+	{0x32fc, 0x00},
+	{0x32fd, 0x11},
+	{0x32fe, 0x32},
+	{0x32ff, 0x0f},
+	{0x3300, 0xe8},
+	{0x3301, 0x8e},
+	{0x3302, 0x00},
+	{0x3303, 0x12},
+	{0x3304, 0xc1},
+	{0x3305, 0x0f},
+	{0x3306, 0xff},
+	{0x3307, 0x8f},
+	{0x3308, 0x0f},
+	{0x3309, 0xf4},
+	{0x330a, 0x23},
+	{0x330b, 0x00},
+	{0x330c, 0x07},
+	{0x330d, 0xc4},
+	{0x330e, 0x0f},
+	{0x330f, 0xfe},
+	{0x3310, 0x11},
+	{0x3311, 0x00},
+	{0x3312, 0x1c},
+	{0x3313, 0x3a},
+	{0x3314, 0x0f},
+	{0x3315, 0xe9},
+	{0x3316, 0x73},
+	{0x3317, 0x00},
+	{0x3318, 0x00},
+	{0x3319, 0x78},
+	{0x331a, 0x00},
+	{0x331b, 0x0a},
+	{0x331c, 0x8b},
+	{0x331d, 0x0f},
+	{0x331e, 0xfc},
+	{0x331f, 0x0f},
+	{0x3320, 0x0f},
+	{0x3321, 0xfc},
+	{0x3322, 0xd3},
+	{0x3323, 0x0f},
+	{0x3324, 0xf6},
+	{0x3325, 0x43},
+	{0x3326, 0x00},
+	{0x3327, 0x03},
+	{0x3328, 0x06},
+	{0x3329, 0x00},
+	{0x332a, 0x06},
+	{0x332b, 0x41},
+	{0x332c, 0x00},
+	{0x332d, 0x01},
+	{0x332e, 0xae},
+	{0x332f, 0x0f},
+	{0x3330, 0xf3},
+	{0x3331, 0x9a},
+	{0x3332, 0x00},
+	{0x3333, 0x06},
+	{0x3334, 0x36},
+	{0x3335, 0x0f},
+	{0x3336, 0xf3},
+	{0x3337, 0xde},
+	{0x3338, 0x00},
+	{0x3339, 0x13},
+	{0x333a, 0x8e},
+	{0x333b, 0x0f},
+	{0x333c, 0xef},
+	{0x333d, 0xfb},
+	{0x333e, 0x0f},
+	{0x333f, 0xfb},
+	{0x3340, 0x87},
+	{0x3341, 0x00},
+	{0x3342, 0x11},
+	{0x3343, 0x60},
+	{0x3344, 0x00},
+	{0x3345, 0x8b},
+	{0x3346, 0xb4},
+	{0x3347, 0x0f},
+	{0x3348, 0xe4},
+	{0x3349, 0x4e},
+	{0x334a, 0x00},
+	{0x334b, 0x12},
+	{0x334c, 0x0e},
+	{0x334d, 0x0f},
+	{0x334e, 0xf8},
+	{0x334f, 0xf4},
+	{0x3350, 0x00},
+	{0x3351, 0x07},
+	{0x3352, 0x27},
+	{0x3353, 0x0f},
+	{0x3354, 0xfb},
+	{0x3355, 0x9b},
+	{0x3356, 0x0f},
+	{0x3357, 0xd7},
+	{0x3358, 0xc0},
+	{0x3359, 0x00},
+	{0x335a, 0x0c},
+	{0x335b, 0x12},
+	{0x335c, 0x0f},
+	{0x335d, 0xf2},
+	{0x335e, 0xda},
+	{0x335f, 0x00},
+	{0x3360, 0x0c},
+	{0x3361, 0x1b},
+	{0x3362, 0x0f},
+	{0x3363, 0xf5},
+	{0x3364, 0x6f},
+	{0x3365, 0x00},
+	{0x3366, 0x05},
+	{0x3367, 0xd8},
+	{0x3368, 0x00},
+	{0x3369, 0x12},
+	{0x336a, 0x7c},
+	{0x336b, 0x0f},
+	{0x336c, 0xe5},
+	{0x336d, 0xe8},
+	{0x336e, 0x00},
+	{0x336f, 0x0c},
+	{0x3370, 0xad},
+	{0x3371, 0x00},
+	{0x3372, 0x04},
+	{0x3373, 0xc3},
+	{0x3374, 0x0f},
+	{0x3375, 0xf4},
+	{0x3376, 0x91},
+	{0x3377, 0x00},
+	{0x3378, 0x09},
+	{0x3379, 0xab},
+	{0x337a, 0x00},
+	{0x337b, 0x09},
+	{0x337c, 0xbc},
+	{0x337d, 0x00},
+	{0x337e, 0x1c},
+	{0x337f, 0x3b},
+	{0x3380, 0x0f},
+	{0x3381, 0xf7},
+	{0x3382, 0x00},
+	{0x3383, 0x0f},
+	{0x3384, 0xf6},
+	{0x3385, 0xfb},
+	{0x3386, 0x00},
+	{0x3387, 0x10},
+	{0x3388, 0x59},
+	{0x3389, 0x0f},
+	{0x338a, 0xed},
+	{0x338b, 0x65},
+	{0x338c, 0x0f},
+	{0x338d, 0xed},
+	{0x338e, 0x18},
+	{0x338f, 0x0f},
+	{0x3390, 0xfd},
+	{0x3391, 0xae},
+	{0x3392, 0x0f},
+	{0x3393, 0xf8},
+	{0x3394, 0x35},
+	{0x3395, 0x00},
+	{0x3396, 0x01},
+	{0x3397, 0xcb},
+	{0x3398, 0x00},
+	{0x3399, 0x01},
+	{0x339a, 0xe8},
+	{0x339b, 0x00},
+	{0x339c, 0x0a},
+	{0x339d, 0x5f},
+	{0x339e, 0x00},
+	{0x339f, 0x11},
+	{0x33a0, 0xa0},
+	{0x33a1, 0x0f},
+	{0x33a2, 0xe9},
+	{0x33a3, 0xeb},
+	{0x33a4, 0x00},
+	{0x33a5, 0x18},
+	{0x33a6, 0x77},
+	{0x33a7, 0x0f},
+	{0x33a8, 0xf9},
+	{0x33a9, 0x9b},
+	{0x33aa, 0x0f},
+	{0x33ab, 0xf8},
+	{0x33ac, 0xd0},
+	{0x33ad, 0x00},
+	{0x33ae, 0x00},
+	{0x33af, 0xd2},
+	{0x309D, 0x62},
+	{0x309d, 0x22},		/* shading enable */
+	/*LC setting End*/
+	}
+};  /* lc_setting} */
 
 static struct wake_lock s5k3e2fx_wake_lock;
 
@@ -865,12 +1439,12 @@ struct reg_struct {
 struct reg_struct s5k3e2fx_reg_pat[2] =  {
   {	/* Preview */
     /* PLL setting */
-    0x06,  /* pre_pll_clk_div               REG=0x0305 */
-    0x00,  /* pll_multiplier_msb            REG=0x0306 */
-    0x88,  /* pll_multiplier_lsb            REG=0x0307 */
-    0x0a,  /* vt_pix_clk_div                REG=0x0301 */
-    0x01,  /* vt_sys_clk_div                REG=0x0303 */
-    0x0a,  /* op_pix_clk_div                REG=0x0309 */
+	0x06,  /* pre_pll_clk_div               REG=0x0305 */
+	0x00,  /* pll_multiplier_msb            REG=0x0306 */
+    0xA0,  /* pll_multiplier_lsb            REG=0x0307 */
+    0x08,  /* vt_pix_clk_div                REG=0x0301 */
+	0x01,  /* vt_sys_clk_div                REG=0x0303 */
+    0x08,  /* op_pix_clk_div                REG=0x0309 */
     0x01,  /* op_sys_clk_div                REG=0x030B */
     /* Data Format */
     0x0a,  /* ccp_data_format_msb   REG=0x0112 */
@@ -959,16 +1533,14 @@ struct reg_struct s5k3e2fx_reg_pat[2] =  {
     0x60,  /* reg_3019_reserved             REG=0x3019 */
 /* 20090703 Steven_Yeh Add Samsung other MSR setting. End */
     0x08,  /* reg_3152_reserved             REG=0x3152 */
-/* 20090703 Steven_Yeh Add Samsung signal output setting. Start */
     0x50,  /* reg_3150_reserved             REG=0x3150 */ /* Inverse PCLK */
-    0x00,  /* reg_3157_reserved             REG=0x3157 */
-    /* PCLK Delay offset; 0x0a will delay around 4ns at 80MHz */
-    0x00,  /* reg_3159_reserved             REG=0x3159 */
-    /* HS, VS driving strength [3:2]=>VS,
+    0x04,  /* reg_3157_reserved             REG=0x3157 */
+	/* PCLK Delay offset; 0x0a will delay around 4ns at 80MHz */
+    0x0f,  /* reg_3159_reserved             REG=0x3159 */
+	/* HS, VS driving strength [3:2]=>VS,
 	[1:0]=>HS 00:2mA, 01:4mA, 10:6mA, 11:8mA */
-/* 20090703 Steven_Yeh Add Samsung signal output setting. End */
-    0x10,  /* reg_315A_reserved             REG=0x315A */
-    /* PCLK, DATA driving strength [7:6]=>data,
+    0xf0,  /* reg_315A_reserved             REG=0x315A */
+	/* PCLK, DATA driving strength [7:6]=>data,
 	[5:4]=>PCLK 00:2mA, 01:4mA, 10:6mA, 11:8mA */
     /* AEC Setting */
     0x00,  /* analogue_gain_code_global_msb REG=0x0204 */
@@ -1001,10 +1573,10 @@ struct reg_struct s5k3e2fx_reg_pat[2] =  {
 	/* PLL setting */
 	0x06,  /* pre_pll_clk_div               REG=0x0305 */
 	0x00,  /* pll_multiplier_msb            REG=0x0306 */
-	0x88,  /* pll_multiplier_lsb            REG=0x0307 */
-	0x0a,  /* vt_pix_clk_div                REG=0x0301 */
+	0xA0,  /* pll_multiplier_lsb            REG=0x0307 */
+	0x08,  /* vt_pix_clk_div                REG=0x0301 */
 	0x01,  /* vt_sys_clk_div                REG=0x0303 */
-	0x0a,  /* op_pix_clk_div                REG=0x0309 */
+	0x08,  /* op_pix_clk_div                REG=0x0309 */
 	0x01,  /* op_sys_clk_div                REG=0x030B */
 	/* Data Format */
 	0x0a,  /* ccp_data_format_msb           REG=0x0112 */
@@ -1087,13 +1659,12 @@ struct reg_struct s5k3e2fx_reg_pat[2] =  {
 	/* 20090703 Steven_Yeh Add Samsung signal output setting. Start */
 	0x50,  /* reg_3150_reserved             REG=0x3150 */
 	/* Inverse PCLK = 0x50 */
-	0x00,  /* reg_3157_reserved             REG=0x3157 */
+	0x04,  /* reg_3157_reserved             REG=0x3157 */
 	/* PCLK Delay offset; 0x0a will delay around 4ns at 80MHz */
-	0x00,  /* reg_3159_reserved             REG=0x3159 */
+	0x0f,  /* reg_3159_reserved             REG=0x3159 */
 	/* HS, VS driving strength [3:2]=>VS,
 	[1:0]=>HS 00:2mA, 01:4mA, 10:6mA, 11:8mA */
-	/* 20090703 Steven_Yeh Add Samsung signal output setting. End */
-	0x10,  /* reg_315A_reserved             REG=0x315A */
+	0xf0,  /* reg_315A_reserved             REG=0x315A */
 	/* PCLK, DATA driving strength [7:6]=>data,
 	[5:4]=>PCLK 00:2mA, 01:4mA, 10:6mA, 11:8mA */
 	/* AEC Setting */
@@ -1172,7 +1743,7 @@ static int s5k3e2fx_i2c_rxdata(unsigned short saddr, unsigned char *rxdata,
 	};
 
 	if (i2c_transfer(s5k3e2fx_client->adapter, msgs, 2) < 0) {
-		CDBG("s5k3e2fx_i2c_rxdata failed!\n");
+		pr_err("s5k3e2fx_i2c_rxdata failed!\n");
 		return -EIO;
 	}
 
@@ -1192,7 +1763,7 @@ static int32_t s5k3e2fx_i2c_txdata(unsigned short saddr,
 	};
 
 	if (i2c_transfer(s5k3e2fx_client->adapter, msg, 1) < 0) {
-		CDBG("s5k3e2fx_i2c_txdata failed\n");
+			pr_err("s5k3e2fx_i2c_txdata failed\n");
 		return -EIO;
 	}
 
@@ -1213,7 +1784,7 @@ static int32_t s5k3e2fx_i2c_write_b(unsigned short saddr, unsigned short waddr,
 	rc = s5k3e2fx_i2c_txdata(saddr, buf, 3);
 
 	if (rc < 0)
-		CDBG("i2c_write_w failed, addr = 0x%x, val = 0x%x!\n",
+		pr_err("i2c_write_w failed, addr = 0x%x, val = 0x%x!\n",
 			waddr, bdata);
 
 	return rc;
@@ -1224,11 +1795,9 @@ static int32_t s5k3e2fx_i2c_write_table(
 {
 	int i;
 	int32_t rc = -EFAULT;
-	//CDBG("s5k3e2fx_i2c_write_table starts\n");
+CDBG("s5k3e2fx_i2c_write_table starts\n");
 	for (i = 0; i < num; i++) {
-		//CDBG("%d: waddr = 0x%x, bdata = 0x%x\n",
-		//	i, (int) reg_cfg_tbl->waddr,
-		//	(int) reg_cfg_tbl->bdata);
+CDBG("%d: waddr = 0x%x, bdata = 0x%x\n", i, (int) reg_cfg_tbl->waddr, (int) reg_cfg_tbl->bdata);
 		rc = s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,
 			reg_cfg_tbl->waddr, reg_cfg_tbl->bdata);
 		if (rc < 0)
@@ -1236,7 +1805,7 @@ static int32_t s5k3e2fx_i2c_write_table(
 		reg_cfg_tbl++;
 	}
 
-//CDBG("s5k3e2fx_i2c_write_table ends\n");
+CDBG("s5k3e2fx_i2c_write_table ends\n");
 	return rc;
 }
 
@@ -1261,7 +1830,7 @@ static int32_t s5k3e2fx_i2c_read_w(unsigned short saddr, unsigned short raddr,
 	*rdata = buf[0] << 8 | buf[1];
 
 	if (rc < 0)
-		CDBG("s5k3e2fx_i2c_read failed!\n");
+		pr_err("s5k3e2fx_i2c_read failed!\n");
 
 	return rc;
 }
@@ -1287,7 +1856,7 @@ static int32_t s5k3e2fx_i2c_read_b(unsigned short saddr, unsigned short raddr,
 	*rdata = buf[0];
 
 	if (rc < 0)
-		CDBG("s5k3e2fx_i2c_read failed!\n");
+		pr_err("s5k3e2fx_i2c_read failed!\n");
 
 	return rc;
 }
@@ -1306,6 +1875,7 @@ static int s5k3e2fx_probe_init_sensor(const struct msm_camera_sensor_info *data)
 {
 	int32_t  rc;
 	uint16_t chipid = 0;
+	uint16_t modulever = 0;
 
 	pr_info("s5k3e2fx: gpio_request:%d\n",data->sensor_reset);
 	rc = gpio_request(data->sensor_reset, "s5k3e2fx");
@@ -1325,18 +1895,33 @@ static int s5k3e2fx_probe_init_sensor(const struct msm_camera_sensor_info *data)
 	CDBG("%s %s:%d %d\n", __FILE__, __func__, __LINE__, s5k3e2fx_client->addr);
 	rc = s5k3e2fx_i2c_read_w(s5k3e2fx_client->addr,
 		S5K3E2FX_REG_MODEL_ID, &chipid);
-	CDBG("%s %s:%d\n", __FILE__, __func__, __LINE__);
-	if (rc < 0)
+	if (rc < 0) {
+		pr_err("S5K3E2FX read model_id failed, line=%d\n", __LINE__);
 		goto init_probe_fail;
+	}
+	CDBG("s5k3e2fx_sensor_init(): model_id=0x%X\n", chipid);
 
-	CDBG("%s %s:%d\n", __FILE__, __func__, __LINE__);
 	if (chipid != S5K3E2FX_MODEL_ID) {
-	  CDBG("S5K3E2FX wrong model_id = 0x%x\n", chipid);
+	  pr_err("S5K3E2FX wrong model_id = 0x%x\n", chipid);
 		rc = -ENODEV;
 		goto init_probe_fail;
 	}
 
-	CDBG("%s %s:%d\n", __FILE__, __func__, __LINE__);
+	rc = s5k3e2fx_i2c_read_b(s5k3e2fx_client->addr,
+		S5K3E2FX_REG_MODULE_VER, &modulever);
+	if (rc < 0) {
+		pr_err("S5K3E2FX read module version failed, line=%d\n", __LINE__);
+		goto init_probe_fail;
+	}
+
+	//modulever = (0xF000 & modulever) >> 8;
+	modulever = 0x00F0 & modulever;
+	CDBG("s5k3e2fx_sensor_init(): module version=0x%X\n", modulever);
+
+	if (modulever == 0x40)
+		g_usModuleVersion = 0;
+	else if (modulever == 0x50)
+		g_usModuleVersion = 1;
 	goto init_probe_done;
 
 init_probe_fail:
@@ -1366,13 +1951,13 @@ static int s5k3e2fx_i2c_probe(struct i2c_client *client,
 	CDBG("s5k3e2fx_probe called!\n");
 
 	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C)) {
-		CDBG("i2c_check_functionality failed\n");
+		pr_err("i2c_check_functionality failed\n");
 		goto probe_failure;
 	}
 
 	s5k3e2fx_sensorw = kzalloc(sizeof(struct s5k3e2fx_work), GFP_KERNEL);
 	if (!s5k3e2fx_sensorw) {
-		CDBG("kzalloc failed.\n");
+		pr_err("kzalloc failed.\n");
 		rc = -ENOMEM;
 		goto probe_failure;
 	}
@@ -1387,7 +1972,7 @@ static int s5k3e2fx_i2c_probe(struct i2c_client *client,
 	return 0;
 
 probe_failure:
-	CDBG("s5k3e2fx_probe failed! rc = %d\n", rc);
+	pr_err("s5k3e2fx_probe failed! rc = %d\n", rc);
 	return rc;
 }
 
@@ -1436,133 +2021,103 @@ static int32_t s5k3e2fx_setting(enum msm_s_reg_update rupdate,
 				rt == S_RES_CAPTURE) {
 
 	struct s5k3e2fx_i2c_reg_conf tbl_1[] = {
-	{S5K3E2FX_REG_MODE_SELECT, S5K3E2FX_MODE_SELECT_SW_STANDBY},
-/* 20090703 Steven_Yeh Mask the repeat setting. Start
-	{REG_CCP_DATA_FORMAT_MSB, s5k3e2fx_reg_pat[rt].ccp_data_format_msb},
-	{REG_CCP_DATA_FORMAT_LSB, s5k3e2fx_reg_pat[rt].ccp_data_format_lsb},
-20090703 Steven_Yeh Mask the repeat setting. End */
-	{REG_X_OUTPUT_SIZE_MSB, s5k3e2fx_reg_pat[rt].x_output_size_msb},
-	{REG_X_OUTPUT_SIZE_LSB, s5k3e2fx_reg_pat[rt].x_output_size_lsb},
-	{REG_Y_OUTPUT_SIZE_MSB, s5k3e2fx_reg_pat[rt].y_output_size_msb},
-	{REG_Y_OUTPUT_SIZE_LSB, s5k3e2fx_reg_pat[rt].y_output_size_lsb},
-/* 20090703 Steven_Yeh Add the Preview/Snapshot different X-Y addr. Start */
-	{REG_X_ADDR_START_MSB, s5k3e2fx_reg_pat[rt].x_addr_start_MSB},
-	{REG_X_ADDR_START_LSB, s5k3e2fx_reg_pat[rt].x_addr_start_LSB},
-	{REG_Y_ADDR_START_MSB, s5k3e2fx_reg_pat[rt].y_addr_start_MSB},
-	{REG_Y_ADDR_START_LSB, s5k3e2fx_reg_pat[rt].y_addr_start_LSB},
-	{REG_X_ADDR_END_MSB, s5k3e2fx_reg_pat[rt].x_addr_end_MSB},
-	{REG_X_ADDR_END_LSB, s5k3e2fx_reg_pat[rt].x_addr_end_LSB},
-	{REG_Y_ADDR_END_MSB, s5k3e2fx_reg_pat[rt].y_addr_end_MSB},
-	{REG_Y_ADDR_END_LSB, s5k3e2fx_reg_pat[rt].y_addr_end_LSB},
-/* 20090703 Steven_Yeh Add the Preview/Snapshot different X-Y addr. End */
-	{REG_X_EVEN_INC, s5k3e2fx_reg_pat[rt].x_even_inc},
-	{REG_X_ODD_INC,  s5k3e2fx_reg_pat[rt].x_odd_inc},
-	{REG_Y_EVEN_INC, s5k3e2fx_reg_pat[rt].y_even_inc},
-	{REG_Y_ODD_INC,  s5k3e2fx_reg_pat[rt].y_odd_inc},
-	{REG_BINNING_ENABLE, s5k3e2fx_reg_pat[rt].binning_enable},
-	};
+		{S5K3E2FX_REG_MODE_SELECT, S5K3E2FX_MODE_SELECT_SW_STANDBY},
+		{REG_X_OUTPUT_SIZE_MSB, s5k3e2fx_reg_pat[rt].x_output_size_msb},
+		{REG_X_OUTPUT_SIZE_LSB, s5k3e2fx_reg_pat[rt].x_output_size_lsb},
+		{REG_Y_OUTPUT_SIZE_MSB, s5k3e2fx_reg_pat[rt].y_output_size_msb},
+		{REG_Y_OUTPUT_SIZE_LSB, s5k3e2fx_reg_pat[rt].y_output_size_lsb},
+	/* Start-End address */
+		{REG_X_ADDR_START_MSB, s5k3e2fx_reg_pat[rt].x_addr_start_MSB},
+		{REG_X_ADDR_START_LSB, s5k3e2fx_reg_pat[rt].x_addr_start_LSB},
+		{REG_Y_ADDR_START_MSB, s5k3e2fx_reg_pat[rt].y_addr_start_MSB},
+		{REG_Y_ADDR_START_LSB, s5k3e2fx_reg_pat[rt].y_addr_start_LSB},
+		{REG_X_ADDR_END_MSB, s5k3e2fx_reg_pat[rt].x_addr_end_MSB},
+		{REG_X_ADDR_END_LSB, s5k3e2fx_reg_pat[rt].x_addr_end_LSB},
+		{REG_Y_ADDR_END_MSB, s5k3e2fx_reg_pat[rt].y_addr_end_MSB},
+		{REG_Y_ADDR_END_LSB, s5k3e2fx_reg_pat[rt].y_addr_end_LSB},
+	/* Binning */
+		{REG_X_EVEN_INC, s5k3e2fx_reg_pat[rt].x_even_inc},
+		{REG_X_ODD_INC,  s5k3e2fx_reg_pat[rt].x_odd_inc},
+		{REG_Y_EVEN_INC, s5k3e2fx_reg_pat[rt].y_even_inc},
+		{REG_Y_ODD_INC,  s5k3e2fx_reg_pat[rt].y_odd_inc},
+		{REG_BINNING_ENABLE, s5k3e2fx_reg_pat[rt].binning_enable},
+		};
+		CDBG("Binning_enable = 0x %2x"
+			"[Steven s5k3e2fx.c s5k3e2fx_setting]\r\n",
+			s5k3e2fx_reg_pat[rt].binning_enable);
+		struct s5k3e2fx_i2c_reg_conf tbl_2[] = {
+			{REG_FRAME_LENGTH_LINES_MSB, 0},
+			{REG_FRAME_LENGTH_LINES_LSB, 0},
+			{REG_LINE_LENGTH_PCK_MSB, s5k3e2fx_reg_pat[rt].line_length_pck_msb},
+			{REG_LINE_LENGTH_PCK_LSB, s5k3e2fx_reg_pat[rt].line_length_pck_lsb},
+			{REG_ANALOGUE_GAIN_CODE_GLOBAL_MSB, s5k3e2fx_reg_pat[rt].analogue_gain_code_global_msb},
+			{REG_ANALOGUE_GAIN_CODE_GLOBAL_LSB, s5k3e2fx_reg_pat[rt].analogue_gain_code_global_lsb},
+			{REG_FINE_INTEGRATION_TIME, s5k3e2fx_reg_pat[rt].fine_integration_time},
+			{REG_COARSE_INTEGRATION_TIME, s5k3e2fx_reg_pat[rt].coarse_integration_time},
+			/*  LC Preview/Snapshot difference register */
+			{REG_SH4CH_BLK_WIDTH_R, s5k3e2fx_reg_pat[rt].sh4ch_blk_width_r},
+			{REG_SH4CH_BLK_HEIGHT_R, s5k3e2fx_reg_pat[rt].sh4ch_blk_height_r},
+			{REG_SH4CH_STEP_X_R_MSB, s5k3e2fx_reg_pat[rt].sh4ch_step_x_r_MSB},
+			{REG_SH4CH_STEP_X_R_LSB, s5k3e2fx_reg_pat[rt].sh4ch_step_x_r_LSB},
+			{REG_SH4CH_STEP_Y_R_MSB, s5k3e2fx_reg_pat[rt].sh4ch_step_y_r_MSB},
+			{REG_SH4CH_STEP_Y_R_LSB, s5k3e2fx_reg_pat[rt].sh4ch_step_y_r_LSB},
+			{REG_SH4CH_START_BLK_CNT_X_R, s5k3e2fx_reg_pat[rt].sh4ch_start_blk_cnt_x_r},
+			{REG_SH4CH_START_BLK_INT_X_R, s5k3e2fx_reg_pat[rt].sh4ch_start_blk_int_x_r},
+			{REG_SH4CH_START_FRAC_X_R_MSB, s5k3e2fx_reg_pat[rt].sh4ch_start_frac_x_r_MSB},
+			{REG_SH4CH_START_FRAC_X_R_LSB, s5k3e2fx_reg_pat[rt].sh4ch_start_frac_x_r_LSB},
+			{REG_SH4CH_START_BLK_CNT_Y_R, s5k3e2fx_reg_pat[rt].sh4ch_start_blk_cnt_y_r},
+			{REG_SH4CH_START_BLK_INT_Y_R, s5k3e2fx_reg_pat[rt].sh4ch_start_blk_int_y_r},
+			{REG_SH4CH_START_FRAC_Y_R_MSB, s5k3e2fx_reg_pat[rt].sh4ch_start_frac_y_r_MSB},
+			{REG_SH4CH_START_FRAC_Y_R_LSB, s5k3e2fx_reg_pat[rt].sh4ch_start_frac_y_r_LSB},
+		};
 
-	struct s5k3e2fx_i2c_reg_conf tbl_2[] = {
-	{REG_FRAME_LENGTH_LINES_MSB, 0},
-	{REG_FRAME_LENGTH_LINES_LSB, 0},
-	{REG_LINE_LENGTH_PCK_MSB, s5k3e2fx_reg_pat[rt].line_length_pck_msb},
-	{REG_LINE_LENGTH_PCK_LSB, s5k3e2fx_reg_pat[rt].line_length_pck_lsb},
-/* 20090703 Steven_Yeh Mask the repeat setting. Start
-	{REG_SHADE_CLK_ENABLE, s5k3e2fx_reg_pat[rt].shade_clk_enable},
-	{REG_SEL_CCP, s5k3e2fx_reg_pat[rt].sel_ccp},
-	{REG_VPIX, s5k3e2fx_reg_pat[rt].vpix},
-	{REG_CLAMP_ON, s5k3e2fx_reg_pat[rt].clamp_on},
-	{REG_OFFSET, s5k3e2fx_reg_pat[rt].offset},
-	{REG_LD_START, s5k3e2fx_reg_pat[rt].ld_start},
-	{REG_LD_END, s5k3e2fx_reg_pat[rt].ld_end},
-	{REG_SL_START, s5k3e2fx_reg_pat[rt].sl_start},
-	{REG_SL_END, s5k3e2fx_reg_pat[rt].sl_end},
-	{REG_RX_START, s5k3e2fx_reg_pat[rt].rx_start},
-	{REG_S1_START, s5k3e2fx_reg_pat[rt].s1_start},
-	{REG_S1_END, s5k3e2fx_reg_pat[rt].s1_end},
-	{REG_S1S_START, s5k3e2fx_reg_pat[rt].s1s_start},
-	{REG_S1S_END, s5k3e2fx_reg_pat[rt].s1s_end},
-	{REG_S3_START, s5k3e2fx_reg_pat[rt].s3_start},
-	{REG_S3_END, s5k3e2fx_reg_pat[rt].s3_end},
-	{REG_CMP_EN_START, s5k3e2fx_reg_pat[rt].cmp_en_start},
-	{REG_CLP_SL_START, s5k3e2fx_reg_pat[rt].clp_sl_start},
-	{REG_CLP_SL_END, s5k3e2fx_reg_pat[rt].clp_sl_end},
-	{REG_OFF_START, s5k3e2fx_reg_pat[rt].off_start},
-	{REG_RMP_EN_START, s5k3e2fx_reg_pat[rt].rmp_en_start},
-	{REG_TX_START, s5k3e2fx_reg_pat[rt].tx_start},
-	{REG_TX_END, s5k3e2fx_reg_pat[rt].tx_end},
-	{REG_STX_WIDTH, s5k3e2fx_reg_pat[rt].stx_width},
-	{REG_3152_RESERVED, s5k3e2fx_reg_pat[rt].reg_3152_reserved},
-	{REG_315A_RESERVED, s5k3e2fx_reg_pat[rt].reg_315A_reserved},
-20090703 Steven_Yeh Mask the repeat setting position. End */
-	{REG_ANALOGUE_GAIN_CODE_GLOBAL_MSB,
-		s5k3e2fx_reg_pat[rt].analogue_gain_code_global_msb},
-	{REG_ANALOGUE_GAIN_CODE_GLOBAL_LSB,
-		s5k3e2fx_reg_pat[rt].analogue_gain_code_global_lsb},
-	{REG_FINE_INTEGRATION_TIME,
-		s5k3e2fx_reg_pat[rt].fine_integration_time},
-	{REG_COARSE_INTEGRATION_TIME,
-		s5k3e2fx_reg_pat[rt].coarse_integration_time},
-/* 20090703 Steven_Yeh Add LC Preview/Snapshot difference register. Start */
-	{REG_SH4CH_BLK_WIDTH_R,
-		s5k3e2fx_reg_pat[rt].sh4ch_blk_width_r},
-	{REG_SH4CH_BLK_HEIGHT_R,
-		s5k3e2fx_reg_pat[rt].sh4ch_blk_height_r},
-	{REG_SH4CH_STEP_X_R_MSB,
-		s5k3e2fx_reg_pat[rt].sh4ch_step_x_r_MSB},
-	{REG_SH4CH_STEP_X_R_LSB,
-		s5k3e2fx_reg_pat[rt].sh4ch_step_x_r_LSB},
-	{REG_SH4CH_STEP_Y_R_MSB,
-		s5k3e2fx_reg_pat[rt].sh4ch_step_y_r_MSB},
-	{REG_SH4CH_STEP_Y_R_LSB,
-		s5k3e2fx_reg_pat[rt].sh4ch_step_y_r_LSB},
-	{REG_SH4CH_START_BLK_CNT_X_R,
-		s5k3e2fx_reg_pat[rt].sh4ch_start_blk_cnt_x_r},
-	{REG_SH4CH_START_BLK_INT_X_R,
-		s5k3e2fx_reg_pat[rt].sh4ch_start_blk_int_x_r},
-	{REG_SH4CH_START_FRAC_X_R_MSB,
-		s5k3e2fx_reg_pat[rt].sh4ch_start_frac_x_r_MSB},
-	{REG_SH4CH_START_FRAC_X_R_LSB,
-		s5k3e2fx_reg_pat[rt].sh4ch_start_frac_x_r_LSB},
-	{REG_SH4CH_START_BLK_CNT_Y_R,
-		s5k3e2fx_reg_pat[rt].sh4ch_start_blk_cnt_y_r},
-	{REG_SH4CH_START_BLK_INT_Y_R,
-		s5k3e2fx_reg_pat[rt].sh4ch_start_blk_int_y_r},
-	{REG_SH4CH_START_FRAC_Y_R_MSB,
-		s5k3e2fx_reg_pat[rt].sh4ch_start_frac_y_r_MSB},
-	{REG_SH4CH_START_FRAC_Y_R_LSB,
-		s5k3e2fx_reg_pat[rt].sh4ch_start_frac_y_r_LSB},
-/* 20090703 Steven_Yeh Add LC Preview/Snapshot difference register. End */
-	{S5K3E2FX_REG_MODE_SELECT, S5K3E2FX_MODE_SELECT_STREAM},
-	};
+/* 090811 Add EVT5 sensor Samsung difference MSR setting between Preview and Capture, Start */
+
+		struct s5k3e2fx_i2c_reg_conf tbl_only_for_EVT5[2][2] = {
+			{	/* S_RES_PREVIEW */
+				{0x3062, 0x00},
+				{0x3063, 0xD6},
+			},
+			{	/* S_RES_CAPTURE */
+				{0x3062, 0x01},
+				{0x3063, 0x16},
+			}
+		};
+
 /*Wilson for Power Up --------->*/
-	if (g_usPowerDownFlag == true) {
-		g_usPowerDownFlag = false;
-	} else {
+		if (g_usPowerDownFlag == true) {
+			g_usPowerDownFlag = false;
+		} else {
 /*<----------------------------*/
-		rc = s5k3e2fx_i2c_write_table(&tbl_1[0],
-			ARRAY_SIZE(tbl_1));
-		if (rc < 0)
-			return rc;
+			rc = s5k3e2fx_i2c_write_table(&tbl_1[0],
+				ARRAY_SIZE(tbl_1));
+			if (rc < 0)
+				return rc;
 
-		num_lperf =
-			(uint16_t)(
-			(s5k3e2fx_reg_pat[rt].frame_length_lines_msb << 8)
-			& 0xFF00) +
-			s5k3e2fx_reg_pat[rt].frame_length_lines_lsb;
+			num_lperf =
+				(uint16_t)((s5k3e2fx_reg_pat[rt].frame_length_lines_msb << 8) & 0xFF00) +
+					s5k3e2fx_reg_pat[rt].frame_length_lines_lsb;
 
-		num_lperf = num_lperf * s5k3e2fx_ctrl->fps_divider / 0x0400;
+			num_lperf = num_lperf * s5k3e2fx_ctrl->fps_divider / 0x0400;
 
-		tbl_2[0] = (struct s5k3e2fx_i2c_reg_conf) {
-				REG_FRAME_LENGTH_LINES_MSB,
-				(num_lperf & 0xFF00) >> 8};
-		tbl_2[1] = (struct s5k3e2fx_i2c_reg_conf) {
-				REG_FRAME_LENGTH_LINES_LSB,
-				(num_lperf & 0x00FF)};
+			tbl_2[0] = (struct s5k3e2fx_i2c_reg_conf) {REG_FRAME_LENGTH_LINES_MSB, (num_lperf & 0xFF00) >> 8};
+			tbl_2[1] = (struct s5k3e2fx_i2c_reg_conf) {REG_FRAME_LENGTH_LINES_LSB, (num_lperf & 0x00FF)};
 
-		rc = s5k3e2fx_i2c_write_table(&tbl_2[0],
-			ARRAY_SIZE(tbl_2));
-		if (rc < 0)
+			rc = s5k3e2fx_i2c_write_table(&tbl_2[0],
+				ARRAY_SIZE(tbl_2));
+			if (rc < 0)
+				return rc;
+
+			/* only for evt5 */
+			if (g_usModuleVersion == 1) {
+				rc = s5k3e2fx_i2c_write_table(&tbl_only_for_EVT5[rt][0], 2);
+				if (rc < 0)
+					return rc;
+			}
+
+			rc = s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,
+				S5K3E2FX_REG_MODE_SELECT, S5K3E2FX_MODE_SELECT_STREAM);
+			if (rc < 0)
 			return rc;
 
 		mdelay(5);
@@ -1581,125 +2136,42 @@ static int32_t s5k3e2fx_setting(enum msm_s_reg_update rupdate,
     if (rt == S_RES_PREVIEW ||
 		rt == S_RES_CAPTURE) {
 
-	struct s5k3e2fx_i2c_reg_conf tbl_3[] = {
-/*wilson{S5K3E2FX_REG_SOFTWARE_RESET, S5K3E2FX_SOFTWARE_RESET},*/
-	{S5K3E2FX_REG_MODE_SELECT, S5K3E2FX_MODE_SELECT_SW_STANDBY},
-	/* PLL setting */
-/* 20090703 Steven_Yeh Mask the repeat setting. Start
-	{REG_PRE_PLL_CLK_DIV, s5k3e2fx_reg_pat[rt].pre_pll_clk_div},
-	{REG_PLL_MULTIPLIER_MSB, s5k3e2fx_reg_pat[rt].pll_multiplier_msb},
-	{REG_PLL_MULTIPLIER_LSB, s5k3e2fx_reg_pat[rt].pll_multiplier_lsb},
-	{REG_VT_PIX_CLK_DIV, s5k3e2fx_reg_pat[rt].vt_pix_clk_div},
-	{REG_VT_SYS_CLK_DIV, s5k3e2fx_reg_pat[rt].vt_sys_clk_div},
-	{REG_OP_PIX_CLK_DIV, s5k3e2fx_reg_pat[rt].op_pix_clk_div},
-	{REG_OP_SYS_CLK_DIV, s5k3e2fx_reg_pat[rt].op_sys_clk_div},
-20090703 Steven_Yeh Mask the repeat setting position. End */
-	/*Data Format */
-/* 20090703 Steven_Yeh Mask the repeat setting. Start
-	{REG_CCP_DATA_FORMAT_MSB, s5k3e2fx_reg_pat[rt].ccp_data_format_msb},
-	{REG_CCP_DATA_FORMAT_LSB, s5k3e2fx_reg_pat[rt].ccp_data_format_lsb},
-20090703 Steven_Yeh Mask the repeat setting position. End */
-	/*Output Size */
-	{REG_X_OUTPUT_SIZE_MSB, s5k3e2fx_reg_pat[rt].x_output_size_msb},
-	{REG_X_OUTPUT_SIZE_LSB, s5k3e2fx_reg_pat[rt].x_output_size_lsb},
-	{REG_Y_OUTPUT_SIZE_MSB, s5k3e2fx_reg_pat[rt].y_output_size_msb},
-	{REG_Y_OUTPUT_SIZE_LSB, s5k3e2fx_reg_pat[rt].y_output_size_lsb},
-/* 20090703 Steven_Yeh Add the Preview/Snapshot different X-Y addr Start */
-	{REG_X_ADDR_START_MSB, s5k3e2fx_reg_pat[rt].x_addr_start_MSB},
-	{REG_X_ADDR_START_LSB, s5k3e2fx_reg_pat[rt].x_addr_start_LSB},
-	{REG_Y_ADDR_START_MSB, s5k3e2fx_reg_pat[rt].y_addr_start_MSB},
-	{REG_Y_ADDR_START_LSB, s5k3e2fx_reg_pat[rt].y_addr_start_LSB},
-	{REG_X_ADDR_END_MSB, s5k3e2fx_reg_pat[rt].x_addr_end_MSB},
-	{REG_X_ADDR_END_LSB, s5k3e2fx_reg_pat[rt].x_addr_end_LSB},
-	{REG_Y_ADDR_END_MSB, s5k3e2fx_reg_pat[rt].y_addr_end_MSB},
-	{REG_Y_ADDR_END_LSB, s5k3e2fx_reg_pat[rt].y_addr_end_LSB},
-/* 20090703 Steven_Yeh Add the Preview/Snapshot different X-Y addr. End */
-	/* Binning */
-	{REG_X_EVEN_INC, s5k3e2fx_reg_pat[rt].x_even_inc},
-	{REG_X_ODD_INC, s5k3e2fx_reg_pat[rt].x_odd_inc },
-	{REG_Y_EVEN_INC, s5k3e2fx_reg_pat[rt].y_even_inc},
-	{REG_Y_ODD_INC, s5k3e2fx_reg_pat[rt].y_odd_inc},
-	{REG_BINNING_ENABLE, s5k3e2fx_reg_pat[rt].binning_enable},
-	/* Frame format */
-	{REG_FRAME_LENGTH_LINES_MSB,
-		s5k3e2fx_reg_pat[rt].frame_length_lines_msb},
-	{REG_FRAME_LENGTH_LINES_LSB,
-		s5k3e2fx_reg_pat[rt].frame_length_lines_lsb},
-	{REG_LINE_LENGTH_PCK_MSB, s5k3e2fx_reg_pat[rt].line_length_pck_msb},
-	{REG_LINE_LENGTH_PCK_LSB, s5k3e2fx_reg_pat[rt].line_length_pck_lsb},
-	/* MSR setting */
-#if 0
-/* 20090703 Steven_Yeh Mask the repeat setting position. Start */
-	{REG_SHADE_CLK_ENABLE, s5k3e2fx_reg_pat[rt].shade_clk_enable},
-/* 20090703 Steven_Yeh Mask the repeat setting position. End */
-#endif
-	{REG_SEL_CCP, s5k3e2fx_reg_pat[rt].sel_ccp},
-#if 0
-/* 20090703 Steven_Yeh Mask the repeat setting position. Start */
-	{REG_VPIX, s5k3e2fx_reg_pat[rt].vpix},
-	{REG_CLAMP_ON, s5k3e2fx_reg_pat[rt].clamp_on},
-	{REG_OFFSET, s5k3e2fx_reg_pat[rt].offset},
-/* 20090703 Steven_Yeh Mask the repeat setting position. End */
-#endif
-	/* CDS timing setting */
-	{REG_LD_START, s5k3e2fx_reg_pat[rt].ld_start},
-	{REG_LD_END, s5k3e2fx_reg_pat[rt].ld_end},
-	{REG_SL_START, s5k3e2fx_reg_pat[rt].sl_start},
-	{REG_SL_END, s5k3e2fx_reg_pat[rt].sl_end},
-	{REG_RX_START, s5k3e2fx_reg_pat[rt].rx_start},
-	{REG_S1_START, s5k3e2fx_reg_pat[rt].s1_start},
-	{REG_S1_END, s5k3e2fx_reg_pat[rt].s1_end},
-	{REG_S1S_START, s5k3e2fx_reg_pat[rt].s1s_start},
-	{REG_S1S_END, s5k3e2fx_reg_pat[rt].s1s_end},
-	{REG_S3_START, s5k3e2fx_reg_pat[rt].s3_start},
-	{REG_S3_END, s5k3e2fx_reg_pat[rt].s3_end},
-	{REG_CMP_EN_START, s5k3e2fx_reg_pat[rt].cmp_en_start},
-	{REG_CLP_SL_START, s5k3e2fx_reg_pat[rt].clp_sl_start},
-	{REG_CLP_SL_END, s5k3e2fx_reg_pat[rt].clp_sl_end},
-	{REG_OFF_START, s5k3e2fx_reg_pat[rt].off_start},
-	{REG_RMP_EN_START, s5k3e2fx_reg_pat[rt].rmp_en_start},
-	{REG_TX_START, s5k3e2fx_reg_pat[rt].tx_start},
-	{REG_TX_END, s5k3e2fx_reg_pat[rt].tx_end},
-	{REG_STX_WIDTH, s5k3e2fx_reg_pat[rt].stx_width},
-/* 20090703 Steven_Yeh Add Samsung other MSR setting. Start */
-	{REG_CLAMP_ON, s5k3e2fx_reg_pat[rt].clamp_on},
-	{REG_301D_RESERVED, s5k3e2fx_reg_pat[rt].reg_301d_reserved},
-	{REG_VPIX, s5k3e2fx_reg_pat[rt].vpix},
-	{REG_3028_RESERVED, s5k3e2fx_reg_pat[rt].reg_3028_reserved},
-	{REG_3070_RESERVED, s5k3e2fx_reg_pat[rt].reg_3070_reserved},
-	{REG_3072_RESERVED, s5k3e2fx_reg_pat[rt].reg_3072_reserved},
-	{REG_301B_RESERVED, s5k3e2fx_reg_pat[rt].reg_301b_reserved},
-	{REG_OFFSET, s5k3e2fx_reg_pat[rt].offset},
-	{REG_30BD_RESERVED, s5k3e2fx_reg_pat[rt].reg_30bd_reserved},
-	{REG_30C2_RESERVED, s5k3e2fx_reg_pat[rt].reg_30c2_reserved},
-	{REG_SHADE_CLK_ENABLE, s5k3e2fx_reg_pat[rt].shade_clk_enable},
-	{REG_3051_RESERVED, s5k3e2fx_reg_pat[rt].reg_3051_reserved},
-	{REG_3029_RESERVED, s5k3e2fx_reg_pat[rt].reg_3029_reserved},
-	{REG_30BF_RESERVED, s5k3e2fx_reg_pat[rt].reg_30bf_reserved},
-	{REG_3022_RESERVED, s5k3e2fx_reg_pat[rt].reg_3022_reserved},
-	{REG_3019_RESERVED, s5k3e2fx_reg_pat[rt].reg_3019_reserved},
-/* 20090703 Steven_Yeh Add Samsung other MSR setting. End */
-	{REG_3152_RESERVED, s5k3e2fx_reg_pat[rt].reg_3152_reserved},
-#if 0
-/* 20090703 Steven_Yeh Mask the repeat setting position. Start */
-/* 20090703 Steven_Yeh Add Samsung signal output setting. Start */
-	{REG_3150_RESERVED, s5k3e2fx_reg_pat[rt].reg_3150_reserved},
-	{REG_3157_RESERVED, s5k3e2fx_reg_pat[rt].reg_3157_reserved},
-	{REG_3159_RESERVED, s5k3e2fx_reg_pat[rt].reg_3159_reserved},
-/* 20090703 Steven_Yeh Add Samsung signal output setting. End */
-	{REG_315A_RESERVED, s5k3e2fx_reg_pat[rt].reg_315A_reserved},
-/* 20090703 Steven_Yeh Mask the repeat setting position. End */
-#endif
-	{REG_ANALOGUE_GAIN_CODE_GLOBAL_MSB,
-		s5k3e2fx_reg_pat[rt].analogue_gain_code_global_msb},
-	{REG_ANALOGUE_GAIN_CODE_GLOBAL_LSB,
-		s5k3e2fx_reg_pat[rt].analogue_gain_code_global_lsb},
-	{REG_FINE_INTEGRATION_TIME,
-		s5k3e2fx_reg_pat[rt].fine_integration_time},
-	{REG_COARSE_INTEGRATION_TIME,
-		s5k3e2fx_reg_pat[rt].coarse_integration_time},
-	{S5K3E2FX_REG_MODE_SELECT, S5K3E2FX_MODE_SELECT_STREAM},
-	};
+		struct s5k3e2fx_i2c_reg_conf tbl_3[] = {
+/*wilson			{S5K3E2FX_REG_SOFTWARE_RESET, S5K3E2FX_SOFTWARE_RESET},*/
+			{S5K3E2FX_REG_MODE_SELECT, S5K3E2FX_MODE_SELECT_SW_STANDBY},
+			/*Output Size */
+			{REG_X_OUTPUT_SIZE_MSB, s5k3e2fx_reg_pat[rt].x_output_size_msb},
+			{REG_X_OUTPUT_SIZE_LSB, s5k3e2fx_reg_pat[rt].x_output_size_lsb},
+			{REG_Y_OUTPUT_SIZE_MSB, s5k3e2fx_reg_pat[rt].y_output_size_msb},
+			{REG_Y_OUTPUT_SIZE_LSB, s5k3e2fx_reg_pat[rt].y_output_size_lsb},
+	/* Start-End address */
+			{REG_X_ADDR_START_MSB, s5k3e2fx_reg_pat[rt].x_addr_start_MSB},
+			{REG_X_ADDR_START_LSB, s5k3e2fx_reg_pat[rt].x_addr_start_LSB},
+			{REG_Y_ADDR_START_MSB, s5k3e2fx_reg_pat[rt].y_addr_start_MSB},
+			{REG_Y_ADDR_START_LSB, s5k3e2fx_reg_pat[rt].y_addr_start_LSB},
+			{REG_X_ADDR_END_MSB, s5k3e2fx_reg_pat[rt].x_addr_end_MSB},
+			{REG_X_ADDR_END_LSB, s5k3e2fx_reg_pat[rt].x_addr_end_LSB},
+			{REG_Y_ADDR_END_MSB, s5k3e2fx_reg_pat[rt].y_addr_end_MSB},
+			{REG_Y_ADDR_END_LSB, s5k3e2fx_reg_pat[rt].y_addr_end_LSB},
+			/* Binning */
+			{REG_X_EVEN_INC, s5k3e2fx_reg_pat[rt].x_even_inc},
+			{REG_X_ODD_INC, s5k3e2fx_reg_pat[rt].x_odd_inc },
+			{REG_Y_EVEN_INC, s5k3e2fx_reg_pat[rt].y_even_inc},
+			{REG_Y_ODD_INC, s5k3e2fx_reg_pat[rt].y_odd_inc},
+			{REG_BINNING_ENABLE, s5k3e2fx_reg_pat[rt].binning_enable},
+			/* Frame format */
+			{REG_FRAME_LENGTH_LINES_MSB, s5k3e2fx_reg_pat[rt].frame_length_lines_msb},
+			{REG_FRAME_LENGTH_LINES_LSB, s5k3e2fx_reg_pat[rt].frame_length_lines_lsb},
+			{REG_LINE_LENGTH_PCK_MSB, s5k3e2fx_reg_pat[rt].line_length_pck_msb},
+			{REG_LINE_LENGTH_PCK_LSB, s5k3e2fx_reg_pat[rt].line_length_pck_lsb},
+			/* MSR setting */
+
+			{REG_ANALOGUE_GAIN_CODE_GLOBAL_MSB, s5k3e2fx_reg_pat[rt].analogue_gain_code_global_msb},
+			{REG_ANALOGUE_GAIN_CODE_GLOBAL_LSB, s5k3e2fx_reg_pat[rt].analogue_gain_code_global_lsb},
+			{REG_FINE_INTEGRATION_TIME, s5k3e2fx_reg_pat[rt].fine_integration_time},
+			{REG_COARSE_INTEGRATION_TIME, s5k3e2fx_reg_pat[rt].coarse_integration_time},
+			{S5K3E2FX_REG_MODE_SELECT, S5K3E2FX_MODE_SELECT_STREAM},
+		};
 /*Wilson for Power Up --------->*/
 		{
 			unsigned short rData = 0;
@@ -1748,7 +2220,7 @@ static int s5k3e2fx_sensor_open_init(const struct msm_camera_sensor_info *data)
 CDBG("%s %s:%d\n", __FILE__, __func__, __LINE__);
 	s5k3e2fx_ctrl = kzalloc(sizeof(struct s5k3e2fx_ctrl), GFP_KERNEL);
 	if (!s5k3e2fx_ctrl) {
-		CDBG("s5k3e2fx_init failed!\n");
+		pr_err("s5k3e2fx_init failed!\n");
 		rc = -ENOMEM;
 		goto init_done;
 	}
@@ -1807,18 +2279,17 @@ static void s5k3e2fx_suspend_sensor(void)
 	s5k3e2fx_i2c_read_b(s5k3e2fx_client->addr,
 			REG_TYPE1_AF_ENABLE, &rData);
 	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,
-			REG_TYPE1_AF_ENABLE, (rData & 0xFFFC));
-	mdelay(10);
-	/*streaming*/
+	REG_TYPE1_AF_ENABLE, (rData & 0xFFFE));
+	mdelay(1);
 	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,
-			S5K3E2FX_REG_MODE_SELECT, S5K3E2FX_MODE_SELECT_SW_STANDBY);
-	msleep(10);
+	S5K3E2FX_REG_MODE_SELECT, S5K3E2FX_MODE_SELECT_SW_STANDBY);
+	mdelay(210);/*for 5FPS*/
 	/*hi z*/
 	s5k3e2fx_i2c_read_b(s5k3e2fx_client->addr,
-			REG_3150_RESERVED, &rData);
+	REG_3150_RESERVED, &rData);
 	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,
-			REG_3150_RESERVED, (rData | 0x0001));
-	mdelay(260);/*for 5FPS*/
+	REG_3150_RESERVED, (rData | 0x0001));
+	mdelay(1);/*for 5FPS*/
 }
 
 
@@ -1860,21 +2331,40 @@ static int s5k3e2fx_sensor_release(void)
 	return rc;
 }
 
-static void s5k3e2fx_probe_init_lens_correction(
-		const struct msm_camera_sensor_info *data)
+static int32_t s5k3e2fx_probe_init_lens_correction
+	(struct msm_camera_sensor_info *data)
 {
+    int32_t rc = 0;
+
 	/*20090706 Steven's LC setting*/
 	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,
 		S5K3E2FX_REG_SOFTWARE_RESET, S5K3E2FX_SOFTWARE_RESET);
 	mdelay(2);
 	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,
 		S5K3E2FX_REG_MODE_SELECT, S5K3E2FX_MODE_SELECT_SW_STANDBY);
-	s5k3e2fx_i2c_write_table(&lc_setting[0],
-			ARRAY_SIZE(lc_setting));
+	/*20090811  separates the EVT4/EVT5 sensor init and LC setting start*/
+	s5k3e2fx_i2c_write_table(&Init_setting[g_usModuleVersion][0],
+			NUM_INIT_REG);
+
+	/* 090911  Add for Samsung VCM calibration current Start */
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr, 0x3112, 0x0A);
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr, 0x3112, 0x09);
+	mdelay(5);
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr, 0x3145, 0x04);
+	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr, 0x3146, 0x80);
+	/* 090911 Add for Samsung VCM calibration current End */
+
+
+	s5k3e2fx_i2c_write_table(&lc_setting[g_usModuleVersion][0],
+			NUM_LC_REG);
+
+	/*20090811  separates the EVT4/EVT5 sensor init and LC setting end*/
 	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,
 		S5K3E2FX_REG_MODE_SELECT, S5K3E2FX_MODE_SELECT_STREAM);
 	mdelay(10);
 	s5k3e2fx_suspend_sensor();
+
+	return rc;
 }
 
 static void s5k3e2fx_get_pict_fps(uint16_t fps, uint16_t *pfps)
@@ -1944,7 +2434,7 @@ static int32_t s5k3e2fx_set_fps(struct fps_cfg *fps)
 	pr_info("s5k3e2fx_ctrl->fps_divider = %d\n",
 		s5k3e2fx_ctrl->fps_divider);
 
-  rc = s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,
+	rc = s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,
 		REG_FRAME_LENGTH_LINES_MSB,
 		(((s5k3e2fx_reg_pat[S_RES_PREVIEW].size_h +
 			s5k3e2fx_reg_pat[S_RES_PREVIEW].blk_l) *
@@ -2009,6 +2499,16 @@ static int32_t s5k3e2fx_write_exp_gain(uint16_t gain, uint32_t line)
 	else
 		ll_ratio = 0x400;
 
+/* AEC_FLASHING */
+	rc =
+		s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,
+			REG_GROUPED_PARAMETER_HOLD,
+			GROUPED_PARAMETER_HOLD);
+	if (rc < 0) {
+		CDBG("s5k3e2fx_i2c_write_b failed... Line:%d \n", __LINE__);
+		return rc;
+	}
+
 	/* update gain registers */
 	gain_msb = (gain & 0xFF00) >> 8;
 	gain_lsb = gain & 0x00FF;
@@ -2019,7 +2519,7 @@ static int32_t s5k3e2fx_write_exp_gain(uint16_t gain, uint32_t line)
 	rc = s5k3e2fx_i2c_write_table(&tbl[0], ARRAY_SIZE(tbl));
 	if (rc < 0)
 		goto write_gain_done;
-
+#if 0 /* AEC_FLASHING */
 	ll_pck = ll_pck * ll_ratio;
 	ll_pck_msb = ((ll_pck / 0x400) & 0xFF00) >> 8;
 	ll_pck_lsb = (ll_pck / 0x400) & 0x00FF;
@@ -2040,7 +2540,43 @@ static int32_t s5k3e2fx_write_exp_gain(uint16_t gain, uint32_t line)
 	tbl[1].waddr = REG_COARSE_INTEGRATION_TIME_LSB;
 	tbl[1].bdata = intg_t_lsb;
 	rc = s5k3e2fx_i2c_write_table(&tbl[0], ARRAY_SIZE(tbl));
+#endif /* AEC_FLASHING */
+/* AEC_FLASHING starts---> */
+	if (line/0x400 + offset > fl_lines)
+		ll_pck = line/0x400 + offset;
+	else
+		ll_pck = fl_lines;
 
+	ll_pck_msb = ((ll_pck) & 0xFF00) >> 8;
+	ll_pck_lsb = (ll_pck) & 0x00FF;
+	tbl[0].waddr = REG_FRAME_LENGTH_LINES_MSB;
+	tbl[0].bdata = ll_pck_msb;
+	tbl[1].waddr = REG_FRAME_LENGTH_LINES_LSB;
+	tbl[1].bdata = ll_pck_lsb;
+
+	rc = s5k3e2fx_i2c_write_table(&tbl[0], ARRAY_SIZE(tbl));
+	if (rc < 0)
+		goto write_gain_done;
+
+
+	line = line / 0x400;
+	intg_t_msb = (line & 0xFF00) >> 8;
+	intg_t_lsb = (line & 0x00FF);
+	tbl[0].waddr = REG_COARSE_INTEGRATION_TIME;
+	tbl[0].bdata = intg_t_msb;
+	tbl[1].waddr = REG_COARSE_INTEGRATION_TIME_LSB;
+	tbl[1].bdata = intg_t_lsb;
+	rc = s5k3e2fx_i2c_write_table(&tbl[0], ARRAY_SIZE(tbl));
+
+	rc =
+		s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,
+			REG_GROUPED_PARAMETER_HOLD,
+			GROUPED_PARAMETER_UPDATE);
+	if (rc < 0) {
+		CDBG("s5k3e2fx_i2c_write_b failed... Line:%d \n", __LINE__);
+		return rc;
+	}
+/* <---- ends AEC_FLASHING */
 write_gain_done:
 	return rc;
 }
@@ -2181,7 +2717,7 @@ static int32_t s5k3e2fx_move_focus(int direction, int32_t num_steps)
 	else if (direction == MOVE_FAR)
 		step_direction = -20;
 	else {
-		CDBG("s5k3e2fx_move_focus failed at line %d ...\n", __LINE__);
+		pr_err("s5k3e2fx_move_focus failed at line %d ...\n", __LINE__);
 		return -EINVAL;
 	}
 
@@ -2390,7 +2926,7 @@ static int s5k3e2fx_sensor_probe(const struct msm_camera_sensor_info *info,
 	return rc;
 
 probe_fail:
-	CDBG("SENSOR PROBE FAILS!\n");
+	pr_err("SENSOR PROBE FAILS!\n");
 	return rc;
 }
 
@@ -2561,4 +3097,3 @@ static int __init s5k3e2fx_init(void)
 }
 
 module_init(s5k3e2fx_init);
-
