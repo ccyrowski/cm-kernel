@@ -1107,10 +1107,11 @@ static inline void vfe_read_irq_status(struct vfe_irq_thread_msg *out)
 
 	temp = (uint32_t *)(ctrl->vfebase + CAMIF_STATUS);
 	out->camifStatus = readl(temp);
+#if 0 /*this for YUV performance tuning*/
 	writel(0x7, ctrl->vfebase + CAMIF_COMMAND);
 	writel(0x3, ctrl->vfebase + CAMIF_COMMAND);
 	CDBG("camifStatus  = 0x%x\n", out->camifStatus);
-
+#endif
 /*
 	temp = (uint32_t *)(ctrl->vfebase + VFE_DEMOSAIC_STATUS);
 	out->demosaicStatus = readl(temp);
