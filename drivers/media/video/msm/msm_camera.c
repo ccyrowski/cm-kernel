@@ -1822,6 +1822,9 @@ static long msm_ioctl_control(struct file *filep, unsigned int cmd,
 	case MSM_CAM_IOCTL_GET_PICTURE:
 		rc = msm_get_pic(pmsm->sync, argp);
 		break;
+	case MSM_CAM_IOCTL_GET_SENSOR_INFO:
+		rc = msm_get_sensor_info(pmsm->sync, argp);
+		break;
 	default:
 		rc = msm_ioctl_common(pmsm, cmd, argp);
 		break;
