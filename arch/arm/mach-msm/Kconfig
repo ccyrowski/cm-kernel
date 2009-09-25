@@ -1,5 +1,54 @@
 if ARCH_MSM
 
+config MSM_AMSS_VERSION
+	int
+	default 6210 if MSM_AMSS_VERSION_6210
+	default 6220 if MSM_AMSS_VERSION_6220
+	default 6225 if MSM_AMSS_VERSION_6225
+	default 6350 if MSM_AMSS_VERSION_6350
+
+choice
+	prompt "AMSS modem firmware version"
+
+	default MSM_AMSS_VERSION_6225
+
+	config MSM_AMSS_VERSION_6210
+		bool "6.2.10"
+
+	config MSM_AMSS_VERSION_6220
+		bool "6.2.20"
+
+	config MSM_AMSS_VERSION_6225
+		bool "6.2.20 + New ADSP"
+
+	config MSM_AMSS_VERSION_6350
+		bool "6.3.50"
+endchoice
+
+config MSM_DEBUG_UART
+	int
+	default 1 if MSM_DEBUG_UART1
+	default 2 if MSM_DEBUG_UART2
+	default 3 if MSM_DEBUG_UART3
+
+choice
+	prompt "Debug UART"
+
+	default MSM_DEBUG_UART_NONE
+
+	config MSM_DEBUG_UART_NONE
+		bool "None"
+
+	config MSM_DEBUG_UART1
+		bool "UART1"
+
+	config MSM_DEBUG_UART2
+		bool "UART2"
+
+	config MSM_DEBUG_UART3
+		bool "UART3"
+endchoice
+
 comment "MSM Board Type"
 	depends on ARCH_MSM
 
@@ -10,4 +59,312 @@ config MACH_HALIBUT
 	help
 	  Support for the Qualcomm SURF7201A eval board.
 
+config MACH_TROUT
+	depends on ARCH_MSM
+	default y
+	bool "Trout (HTC Dream, T-Mobile G1, Google ADP1)"
+	help
+	 Select this to support HTC Dream, T-Mobile G1, Google ADP1.
+
+config MACH_SAPPHIRE
+	depends on ARCH_MSM
+	default y
+	bool "Sapphire"
+
+config HTC_HEADSET
+	tristate "HTC 2 Wire detection driver"
+	default n
+	help
+	 Provides support for detecting HTC 2 wire devices, such as wired
+	 headset, on the trout platform. Can be used with the msm serial
+	 debugger, but not with serial console.
+
+config TROUT_BATTCHG
+	depends on MACH_TROUT && POWER_SUPPLY
+	default y
+	bool "Trout battery / charger driver"
+
+config HTC_PWRSINK
+	depends on MSM_SMD
+	default y
+	bool "HTC Power Sink Driver"
+
+config CACHE_FLUSH_RANGE_LIMIT
+	hex "Cache flush range limit"
+	default 0x40000
+	help
+	  When flushing a cache range larger then this (hex) limit, flush the
+	  entire cache instead. Flushing a large range can be slower than
+	  flushing, then refilling, the entire cache.
+
+choice
+	prompt "Default Timer"
+	default MSM7X00A_USE_GP_TIMER
+
+	config MSM7X00A_USE_GP_TIMER
+		bool "GP Timer"
+	help
+	  Low resolution timer that allows power collapse from idle.
+
+	config MSM7X00A_USE_DG_TIMER
+		bool "DG Timer"
+	help
+	  High resolution timer.
+endchoice	  
+
+choice
+	prompt "Suspend sleep mode"
+	default MSM7X00A_SLEEP_MODE_POWER_COLLAPSE_SUSPEND
+	help
+	  Allows overriding the sleep mode used. Leave at power
+	  collapse suspend unless the arm9 image has problems.
+
+	config MSM7X00A_SLEEP_MODE_POWER_COLLAPSE_SUSPEND
+		bool "Power collapse suspend"
+	help
+	  Lowest sleep state. Returns through reset vector.
+
+	config MSM7X00A_SLEEP_MODE_POWER_COLLAPSE
+		bool "Power collapse"
+	help
+	  Sleep state that returns through reset vector.
+
+	config MSM7X00A_SLEEP_MODE_APPS_SLEEP
+		bool "Apps Sleep"
+
+	config MSM7X00A_SLEEP_MODE_RAMP_DOWN_AND_WAIT_FOR_INTERRUPT
+		bool "Ramp down cpu clock and wait for interrupt"
+
+	config MSM7X00A_SLEEP_WAIT_FOR_INTERRUPT
+		bool "Wait for interrupt"
+endchoice	  
+
+config MSM7X00A_SLEEP_MODE
+	int
+	default 0 if MSM7X00A_SLEEP_MODE_POWER_COLLAPSE_SUSPEND
+	default 1 if MSM7X00A_SLEEP_MODE_POWER_COLLAPSE
+	default 2 if MSM7X00A_SLEEP_MODE_APPS_SLEEP
+	default 3 if MSM7X00A_SLEEP_MODE_RAMP_DOWN_AND_WAIT_FOR_INTERRUPT
+	default 4 if MSM7X00A_SLEEP_WAIT_FOR_INTERRUPT
+
+choice
+	prompt "Idle sleep mode"
+	default MSM7X00A_IDLE_SLEEP_MODE_POWER_COLLAPSE
+	help
+	  Allows overriding the sleep mode used from idle. Leave at power
+	  collapse suspend unless the arm9 image has problems.
+
+	config MSM7X00A_IDLE_SLEEP_MODE_POWER_COLLAPSE_SUSPEND
+		bool "Power collapse suspend"
+	help
+	  Lowest sleep state. Returns through reset vector.
+
+	config MSM7X00A_IDLE_SLEEP_MODE_POWER_COLLAPSE
+		bool "Power collapse"
+	help
+	  Sleep state that returns through reset vector.
+
+	config MSM7X00A_IDLE_SLEEP_MODE_APPS_SLEEP
+		bool "Apps Sleep"
+
+	config MSM7X00A_IDLE_SLEEP_MODE_RAMP_DOWN_AND_WAIT_FOR_INTERRUPT
+		bool "Ramp down cpu clock and wait for interrupt"
+
+	config MSM7X00A_IDLE_SLEEP_WAIT_FOR_INTERRUPT
+		bool "Wait for interrupt"
+endchoice	  
+
+config MSM7X00A_IDLE_SLEEP_MODE
+	int
+	default 0 if MSM7X00A_IDLE_SLEEP_MODE_POWER_COLLAPSE_SUSPEND
+	default 1 if MSM7X00A_IDLE_SLEEP_MODE_POWER_COLLAPSE
+	default 2 if MSM7X00A_IDLE_SLEEP_MODE_APPS_SLEEP
+	default 3 if MSM7X00A_IDLE_SLEEP_MODE_RAMP_DOWN_AND_WAIT_FOR_INTERRUPT
+	default 4 if MSM7X00A_IDLE_SLEEP_WAIT_FOR_INTERRUPT
+
+config MSM7X00A_IDLE_SLEEP_MIN_TIME
+	int "Minimum idle time before sleep"
+	default 20000000
+	help
+	  Minimum idle time in nanoseconds before entering low power mode.
+
+config MSM7X00A_IDLE_SPIN_TIME
+	int "Idle spin time before cpu ramp down"
+	default 80000
+	help
+	  Spin time in nanoseconds before ramping down cpu clock and entering
+	  any low power state.
+
+menuconfig MSM_IDLE_STATS
+	bool "Collect idle statistics"
+	default y
+	help
+	  Collect idle statistics and export them in proc/msm_pm_stats.
+
+if MSM_IDLE_STATS
+
+config MSM_IDLE_STATS_FIRST_BUCKET
+	int "First bucket time"
+	default 62500
+	help
+	  Upper time limit in nanosconds of first bucket.
+
+config MSM_IDLE_STATS_BUCKET_SHIFT
+	int "Bucket shift"
+	default 2
+
+config MSM_IDLE_STATS_BUCKET_COUNT
+	int "Bucket count"
+	default 10
+
+endif # MSM_IDLE_STATS
+
+config MSM_FIQ_SUPPORT
+	default y
+	bool "Enable installation of an FIQ handler."
+
+config MSM_SERIAL_DEBUGGER
+	select MSM_FIQ_SUPPORT
+	select KERNEL_DEBUGGER_CORE
+	default n
+	bool "FIQ Mode Serial Debugger"
+	help
+	  The FIQ serial debugger can accept commands even when the
+	  kernel is unresponsive due to being stuck with interrupts
+	  disabled.  Depends on the kernel debugger core in drivers/misc.
+
+config MSM_SERIAL_DEBUGGER_CONSOLE
+	depends on MSM_SERIAL_DEBUGGER
+	default n
+	bool "Console on FIQ Serial Debugger port"
+	help
+	  Enables a console so that printk messages are displayed on
+	  the debugger serial port as the occur.
+
+config MSM_SMD
+	default y
+	bool "MSM Shared Memory Driver (SMD)"
+	help
+	  Support for the shared memory interface between the apps
+	  processor and the baseband processor.  Provides access to
+	  the "shared heap", as well as virtual serial channels
+	  used to communicate with various services on the baseband
+	  processor.
+
+config MSM_ONCRPCROUTER
+	depends on MSM_SMD
+	default y
+	bool "MSM ONCRPC router support"
+	help
+	  Support for the MSM ONCRPC router for communication between
+	  the ARM9 and ARM11
+
+config MSM_RPCSERVERS
+	depends on MSM_ONCRPCROUTER
+	default y
+	bool "Kernel side RPC server bundle"
+	help
+	  none
+
+config MSM_CPU_FREQ
+	bool
+	default y if MSM_CPU_FREQ_ONDEMAND || MSM_CPU_FREQ_SCREEN
+
+choice
+	prompt "Cpufreq mode"
+	default MSM_CPU_FREQ_ONDEMAND
+	default MSM_CPU_FREQ_SCREEN
+
+	config MSM_CPU_FREQ_ONDEMAND
+		depends on CPU_FREQ_DEFAULT_GOV_ONDEMAND
+		bool "Enable ONDEMAND cpufreq govoner for"
+
+	config MSM_CPU_FREQ_SCREEN
+		depends on HAS_EARLYSUSPEND
+		bool "Enable simple cpu frequency scaling"
+		help
+		  Simple cpufreq scaling based on screen ON/OFF.
+
+endchoice
+
+if MSM_CPU_FREQ_SCREEN
+
+config MSM_CPU_FREQ_SCREEN_OFF
+	int "Screen off cpu frequency"
+	default 245760
+
+config MSM_CPU_FREQ_SCREEN_ON
+	int "Screen on cpu frequency"
+	default 384000
+
+endif # MSM_CPU_FREQ_SCREEN
+
+
+if MSM_CPU_FREQ_ONDEMAND
+
+config MSM_CPU_FREQ_ONDEMAND_MAX
+	int "Max"
+	default 384000
+
+config MSM_CPU_FREQ_ONDEMAND_MIN
+	int "Min"
+	default 245760
+
+endif # MSM_CPU_FREQ_ONDEMAND
+
+config MSM_HW3D
+	tristate "MSM Hardware 3D Register Driver"
+	depends on EARLYSUSPEND
+	default y
+	help
+	  Provides access to registers needed by the userspace OpenGL|ES
+	  library.
+
+config MSM_ADSP
+	tristate "MSM ADSP driver"
+	default y
+	help
+	  Provides access to registers needed by the userspace aDSP library.
+
+config MSM_ADSP_REPORT_EVENTS
+	bool "Report modem events from the DSP"
+	default y
+	depends on MSM_ADSP
+	help
+	  Normally, only messages from the aDSP are reported to userspace.
+	  With this option, we report events from the aDSP as well.
+
+config WIFI_CONTROL_FUNC
+	bool "Enable WiFi control function abstraction"
+	help
+	  Enables Power/Reset/Carddetect function abstraction
+	
+config WIFI_MEM_PREALLOC
+	depends on WIFI_CONTROL_FUNC
+	bool "Preallocate memory for WiFi buffers"
+	help
+	  Preallocates memory buffers for WiFi driver
+
+config VIRTUAL_KPANIC_PARTITION
+	bool "Create virtual kpanic partition"
+	default n
+	help
+	  Creates a virtual mtd partition named 'kpanic', stealing space from
+	  the specified mtd partition label.
+	  *** DO NOT USE IF YOU ARE USING OTA/RECOVERY ***
+
+config VIRTUAL_KPANIC_PSIZE
+	depends on VIRTUAL_KPANIC_PARTITION
+	int "Default kpanic partition size"
+	default 1048576
+	help
+	  Sets the size of the virtual kpanic paritition to create.
+
+config VIRTUAL_KPANIC_SRC
+	depends on VIRTUAL_KPANIC_PARTITION
+	string "Partition to steal from"
+	default "cache"
+	help
+	  Sets the partition to steal from to make the virtual one.
+	
 endif

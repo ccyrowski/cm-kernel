@@ -206,9 +206,17 @@ config MMC_SDRICOH_CS
 	  To compile this driver as a module, choose M here: the
 	  module will be called sdricoh_cs.
 
-config MMC_TMIO
-	tristate "Toshiba Mobile IO Controller (TMIO) MMC/SD function support"
-	depends on MFD_TMIO
+config MMC_MSM7X00A
+	tristate "Qualcomm MSM 7X00A SDCC Controller Support"
+	depends on MMC
 	help
-	  This provides support for the SD/MMC cell found in TC6393XB,
-	  T7L66XB and also ipaq ASIC3
+	  This provides support for the SD/MMC cell found in the
+          MSM 7X00A controllers from Qualcomm.
+
+config MMC_MSM7X00A_RESUME_IN_WQ
+	bool "Perform MMC resume in work-queue (EXPERIMENTAL)"
+        depends on EXPERIMENTAL && MMC_MSM7X00A
+	default n
+	help
+	  This forces msm host-controller driver to perform
+          the majority of its resume-work in a work-queue.

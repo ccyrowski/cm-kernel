@@ -575,6 +575,7 @@ config ARCH_OMAP
 config ARCH_MSM
 	bool "Qualcomm MSM"
 	select CPU_V6
+	select GENERIC_GPIO
 	select GENERIC_TIME
 	select GENERIC_CLOCKEVENTS
 	help
@@ -1086,7 +1087,7 @@ endmenu
 
 menu "CPU Power Management"
 
-if (ARCH_SA1100 || ARCH_INTEGRATOR || ARCH_OMAP || ARCH_IMX || ARCH_PXA)
+if (ARCH_SA1100 || ARCH_INTEGRATOR || ARCH_OMAP || ARCH_IMX || ARCH_PXA || ARCH_MSM)
 
 source "drivers/cpufreq/Kconfig"
 

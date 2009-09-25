@@ -19,5 +19,9 @@
 /* physical offset of RAM */
 #define PHYS_OFFSET		UL(0x10000000)
 
+#define HAS_ARCH_IO_REMAP_PFN_RANGE
+
+#define CONSISTENT_DMA_SIZE (4*SZ_1M)
+
 #endif
 

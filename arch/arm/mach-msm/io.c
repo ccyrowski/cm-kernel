@@ -19,6 +19,7 @@
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/io.h>
+#include <linux/module.h>
 
 #include <mach/hardware.h>
 #include <asm/page.h>
@@ -42,6 +43,11 @@ static struct map_desc msm_io_desc[] __initdata = {
 	MSM_DEVICE(GPIO1),
 	MSM_DEVICE(GPIO2),
 	MSM_DEVICE(CLK_CTL),
+	MSM_DEVICE(AD5),
+	MSM_DEVICE(MDC),
+#ifdef CONFIG_MSM_DEBUG_UART
+	MSM_DEVICE(DEBUG_UART),
+#endif
 	{
 		.virtual =  (unsigned long) MSM_SHARED_RAM_BASE,
 		.pfn =      __phys_to_pfn(MSM_SHARED_RAM_PHYS),
@@ -75,3 +81,5 @@ __msm_ioremap(unsigned long phys_addr, size_t size, unsigned int mtype)
 
 	return __arm_ioremap(phys_addr, size, mtype);
 }
+
+EXPORT_SYMBOL(__msm_ioremap);
