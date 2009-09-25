@@ -100,8 +100,6 @@ static int neg_one = -1;
 
 static int zero;
 static int __maybe_unused two = 2;
-static int one = 1;
-static int two = 2;
 static unsigned long one_ul = 1;
 static int __read_mostly one = 1;
 static int __read_mostly one_hundred = 100;
