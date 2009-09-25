@@ -1,4 +1,4 @@
-/* drivers/input/keyboard/synaptics_i2c_rmi.c
+/* drivers/input/touchscreen/synaptics_i2c_rmi.c
  *
  * Copyright (C) 2007 Google, Inc.
  *
@@ -43,7 +43,6 @@ struct synaptics_ts_data {
 	int snap_down[2];
 	int snap_up[2];
 	uint32_t flags;
-	int reported_finger_count;
 	int8_t sensitivity_adjust;
 	int (*power)(int on);
 	struct early_suspend early_suspend;
@@ -91,6 +90,8 @@ static void synaptics_ts_work_func(struct work_struct *work)
 	uint8_t start_reg;
 	uint8_t buf[15];
 	struct synaptics_ts_data *ts = container_of(work, struct synaptics_ts_data, work);
+    int max_x = ts->max[(ts->flags & SYNAPTICS_SWAP_XY) ? 1 : 0];
+    int max_y = ts->max[(ts->flags & SYNAPTICS_SWAP_XY) ? 0 : 1];
 	int buf_len = ts->has_relative_report ? 15 : 13;
 
 	msg[0].addr = ts->client->addr;
@@ -139,6 +140,7 @@ static void synaptics_ts_work_func(struct work_struct *work)
 				int base;
 				/* int x = buf[3] | (uint16_t)(buf[2] & 0x1f) << 8; */
 				/* int y = buf[5] | (uint16_t)(buf[4] & 0x1f) << 8; */
+				int x, y;
 				int z = buf[1];
 				int w = buf[0] >> 4;
 				int finger = buf[0] & 7;
@@ -151,7 +153,7 @@ static void synaptics_ts_work_func(struct work_struct *work)
 
 				/* int dx = (int8_t)buf[12]; */
 				/* int dy = (int8_t)buf[13]; */
-				int finger2_pressed;
+				int finger2_pressed = finger > 1 && finger != 7;
 
 				/* printk("x %4d, y %4d, z %3d, w %2d, F %d, 2nd: x %4d, y %4d, z %3d, w %2d, F %d, dx %4d, dy %4d\n", */
 				/*	x, y, z, w, finger, */
@@ -166,7 +168,8 @@ static void synaptics_ts_work_func(struct work_struct *work)
 						p |= (uint16_t)(buf[base] & 0x1f) << 8;
 						if (ts->flags & flip_flag)
 							p = ts->max[a] - p;
-						if (ts->flags & SYNAPTICS_SNAP_TO_INACTIVE_EDGE) {
+						/* Snap to the the edges if requested, but never during multitouch */
+						if (!finger2_pressed && (ts->flags & SYNAPTICS_SNAP_TO_INACTIVE_EDGE)) {
 							if (ts->snap_state[f][a]) {
 								if (p <= ts->snap_down_off[a])
 									p = ts->snap_down[a];
@@ -192,39 +195,44 @@ static void synaptics_ts_work_func(struct work_struct *work)
 					if (ts->flags & SYNAPTICS_SWAP_XY)
 						swap(pos[f][0], pos[f][1]);
 				}
+
+				x = pos[0][0];
+				y = pos[0][1];
+				if (!finger2_pressed) {
+					/* No multitouch -- force width to zero */;
+					w = 0;
+				} else {
+					/* Multitouch -- use midpoint between points as x,y */
+					int32_t dx, dy;
+
+					/* (x,y) coords for multitouch are at midpt between fingers */
+				 	x = (pos[0][0] + pos[1][0]) / 2;
+				 	y = (pos[0][1] + pos[1][1]) / 2;
+					dx = (pos[0][0] - pos[1][0]);
+					dy = (pos[0][1] - pos[1][1]);
+
+					/* We only need absolute distances */
+					if (dx < 0) dx = -dx;
+					if (dy < 0) dy = -dy;
+
+					/* We have 24 points of mantissa in a float (which
+					 * ABS_TOOL_WIDTH gets converted into in a MotionEvent.size
+					 * field).  Use 12 for each of dx and dy.  We assume the
+					 * device never gives values larger than its reported
+					 * max_x and max_y values.
+					 */
+					dx = ((1 << 12) - 1) * dx / max_x;
+					dy = ((1 << 12) - 1) * dy / max_y;
+					w = (dx << 12) + dy;
+				}
 				if (z) {
-					input_report_abs(ts->input_dev, ABS_X, pos[0][0]);
-					input_report_abs(ts->input_dev, ABS_Y, pos[0][1]);
+					input_report_abs(ts->input_dev, ABS_X, x);
+					input_report_abs(ts->input_dev, ABS_Y, y);
 				}
 				input_report_abs(ts->input_dev, ABS_PRESSURE, z);
 				input_report_abs(ts->input_dev, ABS_TOOL_WIDTH, w);
 				input_report_key(ts->input_dev, BTN_TOUCH, finger);
-				finger2_pressed = finger > 1 && finger != 7;
-				input_report_key(ts->input_dev, BTN_2, finger2_pressed);
-				if (finger2_pressed) {
-					input_report_abs(ts->input_dev, ABS_HAT0X, pos[1][0]);
-					input_report_abs(ts->input_dev, ABS_HAT0Y, pos[1][1]);
-				}
-
-				if (!finger)
-					z = 0;
-				input_report_abs(ts->input_dev, ABS_MT_TOUCH_MAJOR, z);
-				input_report_abs(ts->input_dev, ABS_MT_WIDTH_MAJOR, w);
-				input_report_abs(ts->input_dev, ABS_MT_POSITION_X, pos[0][0]);
-				input_report_abs(ts->input_dev, ABS_MT_POSITION_Y, pos[0][1]);
-				input_mt_sync(ts->input_dev);
-				if (finger2_pressed) {
-					input_report_abs(ts->input_dev, ABS_MT_TOUCH_MAJOR, z);
-					input_report_abs(ts->input_dev, ABS_MT_WIDTH_MAJOR, w);
-					input_report_abs(ts->input_dev, ABS_MT_POSITION_X, pos[1][0]);
-					input_report_abs(ts->input_dev, ABS_MT_POSITION_Y, pos[1][1]);
-					input_mt_sync(ts->input_dev);
-				} else if (ts->reported_finger_count > 1) {
-					input_report_abs(ts->input_dev, ABS_MT_TOUCH_MAJOR, 0);
-					input_report_abs(ts->input_dev, ABS_MT_WIDTH_MAJOR, 0);
-					input_mt_sync(ts->input_dev);
-				}
-				ts->reported_finger_count = finger;
+				/*input_report_key(ts->input_dev, BTN_2, finger2_pressed);*/
 				input_sync(ts->input_dev);
 			}
 		}
@@ -501,13 +509,9 @@ static int synaptics_ts_probe(
 	input_set_abs_params(ts->input_dev, ABS_X, -inactive_area_left, max_x + inactive_area_right, fuzz_x, 0);
 	input_set_abs_params(ts->input_dev, ABS_Y, -inactive_area_top, max_y + inactive_area_bottom, fuzz_y, 0);
 	input_set_abs_params(ts->input_dev, ABS_PRESSURE, 0, 255, fuzz_p, 0);
-	input_set_abs_params(ts->input_dev, ABS_TOOL_WIDTH, 0, 15, fuzz_w, 0);
+	input_set_abs_params(ts->input_dev, ABS_TOOL_WIDTH, 0, 1, fuzz_w, 0);
 	input_set_abs_params(ts->input_dev, ABS_HAT0X, -inactive_area_left, max_x + inactive_area_right, fuzz_x, 0);
 	input_set_abs_params(ts->input_dev, ABS_HAT0Y, -inactive_area_top, max_y + inactive_area_bottom, fuzz_y, 0);
-	input_set_abs_params(ts->input_dev, ABS_MT_POSITION_X, -inactive_area_left, max_x + inactive_area_right, fuzz_x, 0);
-	input_set_abs_params(ts->input_dev, ABS_MT_POSITION_Y, -inactive_area_top, max_y + inactive_area_bottom, fuzz_y, 0);
-	input_set_abs_params(ts->input_dev, ABS_MT_TOUCH_MAJOR, 0, 255, fuzz_p, 0);
-	input_set_abs_params(ts->input_dev, ABS_MT_WIDTH_MAJOR, 0, 15, fuzz_w, 0);
 	/* ts->input_dev->name = ts->keypad_info->name; */
 	ret = input_register_device(ts->input_dev);
 	if (ret) {
