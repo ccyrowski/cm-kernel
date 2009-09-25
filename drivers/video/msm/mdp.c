@@ -24,7 +24,6 @@
 #include <linux/file.h>
 #include <linux/android_pmem.h>
 #include <linux/major.h>
-#include <linux/msm_hw3d.h>
 
 #include <mach/msm_iomap.h>
 #include <mach/msm_fb.h>
@@ -253,18 +252,15 @@ void mdp_dma(struct mdp_device *mdp_dev, uint32_t addr, uint32_t stride,
 	}
 }
 
-static int get_img(struct mdp_img *img, struct fb_info *info,
-		   unsigned long *start, unsigned long *len,
-		   struct file** filep)
+int get_img(struct mdp_img *img, struct fb_info *info,
+	    unsigned long *start, unsigned long *len,
+	    struct file** filep)
 {
 	int put_needed, ret = 0;
 	struct file *file;
 	unsigned long vstart;
 
 	if (!get_pmem_file(img->memory_id, start, &vstart, len, filep))
-		return 0;
-	else if (!get_msm_hw3d_file(img->memory_id, &img->offset, start, len,
-				    filep))
 		return 0;
 
 	file = fget_light(img->memory_id, &put_needed);
@@ -274,7 +270,6 @@ static int get_img(struct mdp_img *img, struct fb_info *info,
 	if (MAJOR(file->f_dentry->d_inode->i_rdev) == FB_MAJOR) {
 		*start = info->fix.smem_start;
 		*len = info->fix.smem_len;
-		ret = 0;
 	} else
 		ret = -1;
 	fput_light(file, put_needed);
@@ -282,14 +277,12 @@ static int get_img(struct mdp_img *img, struct fb_info *info,
 	return ret;
 }
 
-static void put_img(struct file *file)
+void put_img(struct file *src_file, struct file *dst_file)
 {
-	if (file) {
-		if (is_pmem_file(file))
-			put_pmem_file(file);
-		else if (is_msm_hw3d_file(file))
-			put_msm_hw3d_file(file);
-	}
+	if (src_file)
+		put_pmem_file(src_file);
+	if (dst_file)
+		put_pmem_file(dst_file);
 }
 
 int mdp_blit(struct mdp_device *mdp_dev, struct fb_info *fb,
@@ -321,7 +314,7 @@ int mdp_blit(struct mdp_device *mdp_dev, struct fb_info *fb,
 	if (unlikely(get_img(&req->dst, fb, &dst_start, &dst_len, &dst_file))) {
 		printk(KERN_ERR "mpd_ppp: could not retrieve dst image from "
 				"memory\n");
-		put_img(src_file);
+		put_pmem_file(src_file);
 		return -EINVAL;
 	}
 	mutex_lock(&mdp_mutex);
@@ -366,15 +359,13 @@ int mdp_blit(struct mdp_device *mdp_dev, struct fb_info *fb,
 	if (ret)
 		goto err_wait_failed;
 end:
-	put_img(src_file);
-	put_img(dst_file);
+	put_img(src_file, dst_file);
 	mutex_unlock(&mdp_mutex);
 	return 0;
 err_bad_blit:
 	disable_mdp_irq(mdp, DL0_ROI_DONE);
 err_wait_failed:
-	put_img(src_file);
-	put_img(dst_file);
+	put_img(src_file, dst_file);
 	mutex_unlock(&mdp_mutex);
 	return ret;
 }
